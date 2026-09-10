@@ -1,9 +1,12 @@
 package cmdutil
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 
 	"github.com/mantas6/bh/internal/config"
+	"github.com/mantas6/bh/internal/git"
 	"golang.org/x/term"
 )
 
@@ -29,6 +32,18 @@ func NewFactory(version string) *Factory {
 		Executable: exe,
 		Config: func() (*config.Config, error) {
 			return config.Load()
+		},
+		Git: func() (git.Runner, error) {
+			path, err := exec.LookPath("git")
+			if err != nil {
+				return nil, fmt.Errorf("git executable not found on PATH: %w", err)
+			}
+			return &git.Client{
+				GitPath: path,
+				Stdin:   io.In,
+				Stdout:  io.Out,
+				Stderr:  io.ErrOut,
+			}, nil
 		},
 	}
 }

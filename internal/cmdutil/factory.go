@@ -4,6 +4,7 @@ package cmdutil
 
 import (
 	"github.com/mantas6/bh/internal/config"
+	"github.com/mantas6/bh/internal/git"
 )
 
 // Factory is the dependency container passed to command constructors. Fields
@@ -19,4 +20,8 @@ type Factory struct {
 
 	// Config lazily loads the configuration.
 	Config func() (*config.Config, error)
+
+	// Git lazily returns a git.Runner backed by the git executable. Commands
+	// use it with git.ResolveRepo and the package's high-level helpers.
+	Git func() (git.Runner, error)
 }
