@@ -18,6 +18,11 @@ func NewCmdPR(f *cmdutil.Factory) *cobra.Command {
 	cmd.AddCommand(NewCmdView(f, nil))
 	cmd.AddCommand(NewCmdCreate(f, nil))
 	cmd.AddCommand(NewCmdEdit(f, nil))
+	cmd.AddCommand(NewCmdCheckout(f, nil))
+	cmd.AddCommand(NewCmdMerge(f, nil))
+	cmd.AddCommand(NewCmdApprove(f, nil))
+	cmd.AddCommand(NewCmdReview(f, nil))
+	cmd.AddCommand(NewCmdDecline(f, nil))
 
 	return cmd
 }

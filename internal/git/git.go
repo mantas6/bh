@@ -296,6 +296,43 @@ func Fetch(ctx context.Context, r Runner, remote, refspec string) error {
 	return r.RunInteractive(ctx, args...)
 }
 
+// Checkout runs an interactive `git checkout <ref>`.
+func Checkout(ctx context.Context, r Runner, ref string) error {
+	return r.RunInteractive(ctx, "checkout", ref)
+}
+
+// CheckoutNewBranch runs an interactive `git checkout -b <name> [extra...]`,
+// where extra typically holds a `--track`/`--no-track <start-point>` pair.
+func CheckoutNewBranch(ctx context.Context, r Runner, name string, extra ...string) error {
+	args := append([]string{"checkout", "-b", name}, extra...)
+	return r.RunInteractive(ctx, args...)
+}
+
+// CheckoutDetach runs an interactive `git checkout --detach <ref>`.
+func CheckoutDetach(ctx context.Context, r Runner, ref string) error {
+	return r.RunInteractive(ctx, "checkout", "--detach", ref)
+}
+
+// ResetHard runs an interactive `git reset --hard <ref>`.
+func ResetHard(ctx context.Context, r Runner, ref string) error {
+	return r.RunInteractive(ctx, "reset", "--hard", ref)
+}
+
+// MergeFFOnly runs an interactive `git merge --ff-only <ref>`.
+func MergeFFOnly(ctx context.Context, r Runner, ref string) error {
+	return r.RunInteractive(ctx, "merge", "--ff-only", ref)
+}
+
+// DeleteLocalBranch runs an interactive `git branch -D <name>`.
+func DeleteLocalBranch(ctx context.Context, r Runner, name string) error {
+	return r.RunInteractive(ctx, "branch", "-D", name)
+}
+
+// PushDelete runs an interactive `git push <remote> --delete <branch>`.
+func PushDelete(ctx context.Context, r Runner, remote, branch string) error {
+	return r.RunInteractive(ctx, "push", remote, "--delete", branch)
+}
+
 // SetConfig sets a git config value in the current repository.
 func SetConfig(ctx context.Context, r Runner, key, value string) error {
 	_, err := r.Run(ctx, "config", key, value)

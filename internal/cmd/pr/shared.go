@@ -14,6 +14,7 @@ import (
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
+	"github.com/mantas6/bh/internal/output"
 )
 
 // browser is the minimal interface the pr commands need to open URLs.
@@ -123,6 +124,54 @@ func readLine(r io.Reader) (string, error) {
 		return "", err
 	}
 	return strings.TrimRight(line, "\r\n"), nil
+}
+
+// successIcon returns a green check mark, colored only when the stream allows.
+func successIcon(ios *cmdutil.IOStreams) string {
+	return output.NewColorScheme(ios.ColorEnabled()).Green("✓")
+}
+
+// sameRepoPR reports whether the PR's source repository is the base repo.
+func sameRepoPR(pr *api.PullRequest, baseRepo git.Repo) bool {
+	return pr.Source.Repository != nil &&
+		strings.EqualFold(pr.Source.Repository.FullName, baseRepo.FullName())
+}
+
+// remoteName returns the resolved remote's name, defaulting to "origin".
+func remoteName(rr *git.ResolvedRemote) string {
+	if rr != nil && rr.Remote.Name != "" {
+		return rr.Remote.Name
+	}
+	return "origin"
+}
+
+// deleteLocalSourceBranch removes the PR's source branch locally after a merge
+// or decline. If it is the current branch, HEAD is first switched to dest. A
+// success line is written to ErrOut when a branch is actually deleted.
+func deleteLocalSourceBranch(ctx context.Context, g git.Runner, ios *cmdutil.IOStreams, source, dest string) error {
+	current, err := git.CurrentBranch(ctx, g)
+	if err != nil && !errors.Is(err, git.ErrNotOnBranch) {
+		return err
+	}
+
+	switch {
+	case current == source:
+		if err := git.Checkout(ctx, g, dest); err != nil {
+			return err
+		}
+		if err := git.DeleteLocalBranch(ctx, g, source); err != nil {
+			return err
+		}
+	case git.HasLocalBranch(ctx, g, source):
+		if err := git.DeleteLocalBranch(ctx, g, source); err != nil {
+			return err
+		}
+	default:
+		return nil
+	}
+
+	fmt.Fprintf(ios.ErrOut, "%s Deleted local branch %s\n", successIcon(ios), source)
+	return nil
 }
 
 // readBodyFile reads a --body-file value; "-" reads from ios.In.
