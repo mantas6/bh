@@ -3,6 +3,7 @@
 package cmdutil
 
 import (
+	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/config"
 	"github.com/mantas6/bh/internal/git"
 )
@@ -24,4 +25,8 @@ type Factory struct {
 	// Git lazily returns a git.Runner backed by the git executable. Commands
 	// use it with git.ResolveRepo and the package's high-level helpers.
 	Git func() (git.Runner, error)
+
+	// ApiClient lazily builds an authenticated Bitbucket API client. It
+	// returns api.ErrNoToken when no credentials are configured.
+	ApiClient func() (*api.Client, error)
 }

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/config"
 	"github.com/mantas6/bh/internal/git"
 	"golang.org/x/term"
@@ -44,6 +45,20 @@ func NewFactory(version string) *Factory {
 				Stdout:  io.Out,
 				Stderr:  io.ErrOut,
 			}, nil
+		},
+		ApiClient: func() (*api.Client, error) {
+			cfg, err := config.Load()
+			if err != nil {
+				return nil, err
+			}
+			host := config.DefaultHost
+			token, _ := cfg.Token(host)
+			if token == "" {
+				return nil, api.ErrNoToken
+			}
+			client := api.NewClient(config.DefaultAPIBase, token, cfg.Email(host))
+			client.UserAgent = "bh/" + version
+			return client, nil
 		},
 	}
 }
