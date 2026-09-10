@@ -2,6 +2,7 @@
 package root
 
 import (
+	"github.com/mantas6/bh/internal/cmd/auth"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/spf13/cobra"
 )
@@ -23,7 +24,8 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	cmd.SetIn(f.IOStreams.In)
 
 	// Cobra registers a --version flag automatically because Version is set.
-	// Subcommand groups are added by later steps.
+	cmd.AddCommand(auth.NewCmdAuth(f))
+	// Additional subcommand groups are added by later steps.
 
 	return cmd
 }
