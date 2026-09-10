@@ -4,6 +4,7 @@ package cmdutil
 
 import (
 	"github.com/mantas6/bh/internal/api"
+	"github.com/mantas6/bh/internal/browser"
 	"github.com/mantas6/bh/internal/config"
 	"github.com/mantas6/bh/internal/git"
 )
@@ -29,4 +30,16 @@ type Factory struct {
 	// ApiClient lazily builds an authenticated Bitbucket API client. It
 	// returns api.ErrNoToken when no credentials are configured.
 	ApiClient func() (*api.Client, error)
+
+	// Browser opens URLs in the user's web browser.
+	Browser *browser.Browser
+
+	// RepoOverride holds the value of the global -R/--repo flag; it feeds
+	// BaseRepo. The root command binds this to the persistent flag.
+	RepoOverride string
+
+	// BaseRepo resolves the base repository using the precedence
+	// -R/--repo > BH_REPO > upstream > origin > first Bitbucket remote. The
+	// returned *git.ResolvedRemote is the matching git remote, or nil.
+	BaseRepo func() (git.Repo, *git.ResolvedRemote, error)
 }

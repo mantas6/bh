@@ -1,11 +1,13 @@
 package cmdutil
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 
 	"github.com/mantas6/bh/internal/api"
+	"github.com/mantas6/bh/internal/browser"
 	"github.com/mantas6/bh/internal/config"
 	"github.com/mantas6/bh/internal/git"
 	"golang.org/x/term"
@@ -27,10 +29,11 @@ func NewFactory(version string) *Factory {
 		exe = "bh"
 	}
 
-	return &Factory{
+	f := &Factory{
 		IOStreams:  io,
 		Version:    version,
 		Executable: exe,
+		Browser:    browser.New(),
 		Config: func() (*config.Config, error) {
 			return config.Load()
 		},
@@ -61,4 +64,14 @@ func NewFactory(version string) *Factory {
 			return client, nil
 		},
 	}
+
+	f.BaseRepo = func() (git.Repo, *git.ResolvedRemote, error) {
+		gitRunner, err := f.Git()
+		if err != nil {
+			return git.Repo{}, nil, err
+		}
+		return git.ResolveRepo(context.Background(), gitRunner, f.RepoOverride)
+	}
+
+	return f
 }
