@@ -3,6 +3,7 @@
 package pr
 
 import (
+	"github.com/mantas6/bh/internal/cmd/pr/comment"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/spf13/cobra"
 )
@@ -23,6 +24,7 @@ func NewCmdPR(f *cmdutil.Factory) *cobra.Command {
 	cmd.AddCommand(NewCmdApprove(f, nil))
 	cmd.AddCommand(NewCmdReview(f, nil))
 	cmd.AddCommand(NewCmdDecline(f, nil))
+	cmd.AddCommand(comment.NewCmdComment(f))
 
 	return cmd
 }
