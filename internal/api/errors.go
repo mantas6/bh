@@ -55,13 +55,20 @@ func parseHTTPError(resp *http.Response, method, url string) *HTTPError {
 	return e
 }
 
-// Error implements error.
+// Error implements error. It renders the server's message (falling back to the
+// standard status text) with the status code appended, plus an optional hint
+// on a second line. The request method and URL are intentionally omitted to
+// keep the message readable.
 func (e *HTTPError) Error() string {
-	msg := fmt.Sprintf("HTTP %d: %s (%s %s)", e.StatusCode, e.Message, e.Method, e.URL)
-	if h := e.Hint(); h != "" {
-		msg += "\n" + h
+	msg := e.Message
+	if msg == "" {
+		msg = http.StatusText(e.StatusCode)
 	}
-	return msg
+	s := fmt.Sprintf("%s (HTTP %d)", msg, e.StatusCode)
+	if h := e.Hint(); h != "" {
+		s += "\n" + h
+	}
+	return s
 }
 
 // Hint returns an actionable suggestion for common status codes, or "".

@@ -8,6 +8,7 @@ import (
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/config"
+	"github.com/mantas6/bh/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -63,6 +64,7 @@ func statusRun(opts *StatusOptions) error {
 	email := cfg.Email(host)
 
 	out := opts.IO.Out
+	cs := output.NewColorScheme(opts.IO.ColorEnabled())
 	fmt.Fprintln(out, host)
 
 	client := opts.ApiClientFor(token, email)
@@ -73,11 +75,11 @@ func statusRun(opts *StatusOptions) error {
 		if errors.As(err, &he) {
 			msg = he.Message
 		}
-		fmt.Fprintf(out, "  ✗ Token for %s is invalid: %s\n", host, msg)
+		fmt.Fprintf(out, "  %s Token for %s is invalid: %s\n", cs.FailureIcon(), host, msg)
 		return cmdutil.ErrSilent
 	}
 
-	fmt.Fprintf(out, "  ✓ Logged in to %s as %s (%s)\n", host, displayName(user), source)
+	fmt.Fprintf(out, "  %s Logged in to %s as %s (%s)\n", cs.SuccessIcon(), host, displayName(user), source)
 	if email != "" {
 		fmt.Fprintf(out, "  - Auth mode: Basic (%s)\n", email)
 	} else {

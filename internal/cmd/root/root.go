@@ -11,9 +11,15 @@ import (
 // NewCmdRoot creates the root "bh" command.
 func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "bh <command> <subcommand> [flags]",
-		Short:         "Bitbucket CLI",
-		Long:          "Work with Bitbucket Cloud from the command line.",
+		Use:   "bh <command> <subcommand> [flags]",
+		Short: "Bitbucket CLI",
+		Long:  "Work with Bitbucket Cloud pull requests from the command line.",
+		Example: cmdutil.Heredoc(`
+			$ bh pr list
+			$ bh pr view 123
+			$ bh pr create --fill
+			$ bh auth login
+		`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Version:       f.Version,
@@ -23,6 +29,12 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	cmd.SetOut(f.IOStreams.Out)
 	cmd.SetErr(f.IOStreams.ErrOut)
 	cmd.SetIn(f.IOStreams.In)
+
+	// Wrap cobra's flag-parsing errors so the top level can print a usage hint
+	// and select the correct exit code.
+	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		return cmdutil.FlagErrorWrap(err)
+	})
 
 	// Global repository override, consumed by f.BaseRepo.
 	cmd.PersistentFlags().StringVarP(&f.RepoOverride, "repo", "R", "", "Select a repository using the `[HOST/]OWNER/REPO` format")

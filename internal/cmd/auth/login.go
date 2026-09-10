@@ -12,6 +12,7 @@ import (
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/config"
+	"github.com/mantas6/bh/internal/output"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -50,9 +51,29 @@ func NewCmdLogin(f *cmdutil.Factory, runF func(*LoginOptions) error) *cobra.Comm
 
 	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Authenticate with Bitbucket",
-		Long:  "Authenticate bh with a Bitbucket Cloud API token.",
-		Args:  cobra.NoArgs,
+		Short: "Log in to Bitbucket",
+		Long: cmdutil.Heredoc(`
+			Authenticate bh with a Bitbucket Cloud API token.
+
+			Create an API token at
+			https://id.atlassian.com/manage-profile/security/api-tokens with the
+			scopes: read:user:bitbucket, read:repository:bitbucket,
+			read:pullrequest:bitbucket and write:pullrequest:bitbucket.
+
+			Leave the email blank to send the token as a Bearer token, or provide
+			your Atlassian account email to use Basic authentication.
+		`),
+		Example: cmdutil.Heredoc(`
+			# Authenticate interactively (prompts for the token)
+			$ bh auth login
+
+			# Read the token from standard input
+			$ bh auth login --with-token < token.txt
+
+			# Use Basic auth with your Atlassian email
+			$ bh auth login --email you@example.com
+		`),
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.emailSet = cmd.Flags().Changed("email")
 			if opts.ReadPassword == nil {
@@ -139,11 +160,12 @@ func loginRun(opts *LoginOptions) error {
 		return err
 	}
 
+	cs := output.NewColorScheme(opts.IO.ColorEnabled())
 	if os.Getenv("BH_TOKEN") != "" {
-		fmt.Fprintln(opts.IO.ErrOut, "! The BH_TOKEN environment variable is set and will take precedence over the stored token.")
+		fmt.Fprintf(opts.IO.ErrOut, "%s The BH_TOKEN environment variable is set and will take precedence over the stored token.\n", cs.WarningIcon())
 	}
 
-	fmt.Fprintf(opts.IO.ErrOut, "✓ Logged in to %s as %s\n", config.DefaultHost, name)
+	fmt.Fprintf(opts.IO.ErrOut, "%s Logged in to %s as %s\n", cs.SuccessIcon(), config.DefaultHost, name)
 	return nil
 }
 

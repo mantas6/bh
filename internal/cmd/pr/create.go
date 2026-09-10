@@ -11,6 +11,7 @@ import (
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
+	"github.com/mantas6/bh/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -54,7 +55,28 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a pull request",
-		Args:  cobra.NoArgs,
+		Long: cmdutil.Heredoc(`
+			Create a pull request on Bitbucket.
+
+			The head branch defaults to the current branch. When it has not been
+			pushed yet you are prompted to push it (use --push to skip the prompt,
+			required when not running interactively). The base branch defaults to
+			the repository's main branch.
+		`),
+		Example: cmdutil.Heredoc(`
+			# Interactively create a PR from the current branch
+			$ bh pr create
+
+			# Fill the title and body from the branch's commits
+			$ bh pr create --fill
+
+			# Create a PR against a specific base with reviewers
+			$ bh pr create --base main --reviewer alice,bob --title "Fix bug"
+
+			# Open the create page in the browser instead
+			$ bh pr create --web
+		`),
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.titleSet = cmd.Flags().Changed("title")
 			if opts.Body != "" && opts.BodyFile != "" {
@@ -258,7 +280,8 @@ func ensurePushed(ctx context.Context, opts *CreateOptions, gitRunner git.Runner
 		return err
 	}
 	if ahead > 0 {
-		fmt.Fprintf(opts.IO.ErrOut, "! local branch is %d commits ahead of %s\n", ahead, upstreamRef)
+		cs := output.NewColorScheme(opts.IO.ColorEnabled())
+		fmt.Fprintf(opts.IO.ErrOut, "%s local branch is %d commits ahead of %s\n", cs.WarningIcon(), ahead, upstreamRef)
 	}
 	return nil
 }

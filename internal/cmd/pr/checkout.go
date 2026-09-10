@@ -36,7 +36,25 @@ func NewCmdCheckout(f *cmdutil.Factory, runF func(*CheckoutOptions) error) *cobr
 	cmd := &cobra.Command{
 		Use:   "checkout {<number> | <url>}",
 		Short: "Check out a pull request in git",
-		Args:  cobra.ExactArgs(1),
+		Long: cmdutil.Heredoc(`
+			Check out a pull request's source branch locally.
+
+			For same-repository pull requests the source branch is fetched and
+			checked out with tracking configured. For pull requests from a fork the
+			branch is fetched from the fork's clone URL (matching the origin remote's
+			protocol) since Bitbucket exposes no pull/* refs.
+		`),
+		Example: cmdutil.Heredoc(`
+			# Check out PR 123
+			$ bh pr checkout 123
+
+			# Check out into a named local branch
+			$ bh pr checkout 123 --branch review-123
+
+			# Check out from a URL in a detached HEAD
+			$ bh pr checkout https://bitbucket.org/ws/repo/pull-requests/123 --detach
+		`),
+		Args: cmdutil.ExactArgs(1, "a pull request number or URL is required"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Arg = args[0]
 			if opts.Branch != "" && opts.Detach {

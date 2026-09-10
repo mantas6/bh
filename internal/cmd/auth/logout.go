@@ -5,6 +5,7 @@ import (
 
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/config"
+	"github.com/mantas6/bh/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -52,6 +53,7 @@ func logoutRun(opts *LogoutOptions) error {
 		return err
 	}
 
-	fmt.Fprintf(opts.IO.ErrOut, "✓ Logged out of %s\n", host)
+	cs := output.NewColorScheme(opts.IO.ColorEnabled())
+	fmt.Fprintf(opts.IO.ErrOut, "%s Logged out of %s\n", cs.SuccessIcon(), host)
 	return nil
 }

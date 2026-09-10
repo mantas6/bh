@@ -39,7 +39,26 @@ func NewCmdMerge(f *cmdutil.Factory, runF func(*MergeOptions) error) *cobra.Comm
 	cmd := &cobra.Command{
 		Use:   "merge [<number> | <url> | <branch>]",
 		Short: "Merge a pull request",
-		Args:  cobra.MaximumNArgs(1),
+		Long: cmdutil.Heredoc(`
+			Merge a pull request on Bitbucket.
+
+			Without a merge-strategy flag the destination branch's default strategy
+			is used and, on a terminal, you are asked to confirm. When not running
+			interactively either pass a strategy flag or --yes.
+
+			With no argument the pull request for the current branch is merged.
+		`),
+		Example: cmdutil.Heredoc(`
+			# Merge the PR for the current branch, prompting for confirmation
+			$ bh pr merge
+
+			# Squash-merge PR 123 and delete its source branch
+			$ bh pr merge 123 --squash --delete-branch
+
+			# Merge non-interactively with a merge commit
+			$ bh pr merge 123 --merge --yes
+		`),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.Arg = args[0]

@@ -49,6 +49,15 @@ func (c *ColorScheme) Cyan(s string) string { return c.color("36", s) }
 // Magenta colors s magenta.
 func (c *ColorScheme) Magenta(s string) string { return c.color("35", s) }
 
+// SuccessIcon returns a green check mark ("✓"), plain when color is disabled.
+func (c *ColorScheme) SuccessIcon() string { return c.Green("✓") }
+
+// FailureIcon returns a red cross ("✗"), plain when color is disabled.
+func (c *ColorScheme) FailureIcon() string { return c.Red("✗") }
+
+// WarningIcon returns a yellow bang ("!"), plain when color is disabled.
+func (c *ColorScheme) WarningIcon() string { return c.Yellow("!") }
+
 // StateColor colors a PR state string: OPEN->green, MERGED->magenta,
 // DECLINED->red, SUPERSEDED->gray. Unknown states are returned unchanged.
 func (c *ColorScheme) StateColor(state string) string {
@@ -69,8 +78,12 @@ func (c *ColorScheme) StateColor(state string) string {
 // RelativeTime renders the difference between now and t as a human phrase such
 // as "about 3 hours ago" or "2 days ago".
 func RelativeTime(t, now time.Time) string {
+	if t.IsZero() {
+		return "unknown"
+	}
 	d := now.Sub(t)
 	if d < 0 {
+		// Future timestamps (clock skew) are reported as the present.
 		return "just now"
 	}
 	switch {

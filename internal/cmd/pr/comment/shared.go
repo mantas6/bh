@@ -116,7 +116,7 @@ func commentAuthor(u api.User) string {
 
 // successIcon returns a green check mark, colored only when the stream allows.
 func successIcon(ios *cmdutil.IOStreams) string {
-	return output.NewColorScheme(ios.ColorEnabled()).Green("✓")
+	return output.NewColorScheme(ios.ColorEnabled()).SuccessIcon()
 }
 
 // readLine reads a single line from r without the trailing newline.

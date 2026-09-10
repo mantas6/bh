@@ -5,6 +5,7 @@ package browser
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -85,5 +86,8 @@ func (b *Browser) Browse(url string) error {
 	if runner == nil {
 		runner = defaultRunner
 	}
-	return runner(name, args...)
+	if err := runner(name, args...); err != nil {
+		return fmt.Errorf("failed to open browser: %w", err)
+	}
+	return nil
 }

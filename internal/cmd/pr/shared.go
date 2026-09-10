@@ -128,7 +128,7 @@ func readLine(r io.Reader) (string, error) {
 
 // successIcon returns a green check mark, colored only when the stream allows.
 func successIcon(ios *cmdutil.IOStreams) string {
-	return output.NewColorScheme(ios.ColorEnabled()).Green("✓")
+	return output.NewColorScheme(ios.ColorEnabled()).SuccessIcon()
 }
 
 // sameRepoPR reports whether the PR's source repository is the base repo.

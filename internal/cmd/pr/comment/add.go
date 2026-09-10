@@ -44,7 +44,28 @@ func NewCmdAdd(f *cmdutil.Factory, runF func(*AddOptions) error) *cobra.Command 
 	cmd := &cobra.Command{
 		Use:   "add [<number> | <url> | <branch>]",
 		Short: "Add a comment to a pull request",
-		Args:  cobra.MaximumNArgs(1),
+		Long: cmdutil.Heredoc(`
+			Add a comment to a pull request.
+
+			The body is taken from --body, --body-file (use "-" for standard input),
+			or, when neither is given and standard input is not a terminal, the whole
+			of standard input. Pass --path (and optionally --line) to attach the
+			comment inline to a file in the diff.
+		`),
+		Example: cmdutil.Heredoc(`
+			# Comment on the PR for the current branch
+			$ bh pr comment add --body "Looks good to me"
+
+			# Comment on PR 123 from a file
+			$ bh pr comment add 123 --body-file notes.md
+
+			# Add an inline comment on a specific line
+			$ bh pr comment add 123 --path main.go --line 42 --body "Rename this"
+
+			# Pipe the body from another command
+			$ echo "Nice work" | bh pr comment add 123
+		`),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.Arg = args[0]
