@@ -42,7 +42,6 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	// Cobra registers a --version flag automatically because Version is set.
 	cmd.AddCommand(auth.NewCmdAuth(f))
 	cmd.AddCommand(pr.NewCmdPR(f))
-	// Additional subcommand groups are added by later steps.
 
 	return cmd
 }

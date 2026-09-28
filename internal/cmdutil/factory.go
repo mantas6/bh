@@ -9,9 +9,7 @@ import (
 	"github.com/mantas6/bh/internal/git"
 )
 
-// Factory is the dependency container passed to command constructors. Fields
-// are added by later steps (e.g. HTTP/API clients, git, browser); keep it
-// simple and extensible.
+// Factory is the dependency container passed to command constructors.
 type Factory struct {
 	// IOStreams provides the command's input/output streams.
 	IOStreams *IOStreams

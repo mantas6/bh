@@ -20,10 +20,9 @@ func fixedNow() time.Time {
 	return time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
 }
 
-// samplePR returns a representative pull request fixture. Steps 6-7 (package
-// pr) should reuse this and the helpers below. The comment subpackage
-// (internal/cmd/pr/comment) cannot import these test symbols and must
-// duplicate an equivalent fixture.
+// samplePR returns a representative pull request fixture. The comment
+// subpackage (internal/cmd/pr/comment) cannot import these test symbols and
+// keeps an equivalent fixture of its own.
 func samplePR() *api.PullRequest {
 	return &api.PullRequest{
 		ID:          123,

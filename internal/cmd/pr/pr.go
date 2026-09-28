@@ -1,5 +1,6 @@
-// Package pr implements the `bh pr` command group: list, view, create and edit
-// pull requests, along with the shared PR argument resolver.
+// Package pr implements the `bh pr` command group: list (ls), view, create,
+// edit, checkout, merge, approve, review, decline and comment, along with the
+// shared PR argument resolver.
 package pr
 
 import (

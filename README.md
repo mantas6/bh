@@ -97,7 +97,7 @@ The following remote URL forms are recognized:
 | `bh auth logout` | Log out of Bitbucket |
 | `bh auth status` | View authentication status |
 | `bh auth token` | Print the auth token bh is configured to use |
-| `bh pr list` | List pull requests |
+| `bh pr list` | List pull requests (alias: `ls`) |
 | `bh pr view` | View a pull request |
 | `bh pr create` | Create a pull request |
 | `bh pr edit` | Edit a pull request |
@@ -113,8 +113,10 @@ The following remote URL forms are recognized:
 | `bh pr comment resolve` | Resolve a pull request comment thread |
 | `bh pr comment reopen` | Reopen (unresolve) a pull request comment thread |
 
-A pull request argument accepts a number (`123`), a Bitbucket pull request URL,
-or may be omitted to use the pull request for the current branch.
+A pull request argument accepts a number (`123`) or a Bitbucket pull request
+URL. For most commands it may be omitted to use the pull request for the
+current branch; `bh pr checkout` and `bh pr comment reply|delete|resolve|reopen`
+require it.
 
 Run `bh <command> --help` for the full flag list of any command.
 
@@ -181,5 +183,3 @@ The following are intentionally out of scope for now:
 - `--json <fields>` field selection (only a boolean `--json` dump is available)
 - `pr diff`, `pr checks`, and `pr status`
 - A bundled CI workflow
-</content>
-</invoke>

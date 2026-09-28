@@ -1,11 +1,13 @@
 module github.com/mantas6/bh
 
-go 1.26.7
+go 1.26.0
+
+toolchain go1.26.7
 
 require (
 	github.com/spf13/cobra v1.10.2
+	go.yaml.in/yaml/v3 v3.0.4
 	golang.org/x/term v0.46.0
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
