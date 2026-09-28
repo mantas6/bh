@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"strings"
 )
 
@@ -115,15 +114,26 @@ func ParseRemoteURL(raw string) (Repo, bool) {
 	return Repo{Host: normHost, Workspace: ws, Name: name}, true
 }
 
-// ParseRepoArg parses a -R/--repo value: either "ws/repo" or a full Bitbucket
-// URL (with an optional trailing path such as /pull-requests/1).
+// ParseRepoArg parses a -R/--repo value. Accepted forms are "OWNER/REPO",
+// "HOST/OWNER/REPO", any git remote URL accepted by ParseRemoteURL (https,
+// ssh, git and scp-like "git@HOST:OWNER/REPO"), and a Bitbucket web URL with
+// an optional trailing path such as /pull-requests/1.
 func ParseRepoArg(s string) (Repo, error) {
 	s = strings.TrimSpace(s)
+	formatErr := func() error {
+		return fmt.Errorf("expected the \"[HOST/]OWNER/REPO\" format or a repository URL, got %q", s)
+	}
 	if s == "" {
-		return Repo{}, errors.New("expected the \"[HOST/]OWNER/REPO\" format, got \"\"")
+		return Repo{}, formatErr()
+	}
+
+	if repo, ok := ParseRemoteURL(s); ok {
+		return repo, nil
 	}
 
 	if strings.Contains(s, "://") {
+		// Not a plain remote URL; accept a Bitbucket web URL with extra
+		// trailing path segments (e.g. a pull request link).
 		u, err := url.Parse(s)
 		if err != nil {
 			return Repo{}, fmt.Errorf("invalid repository URL %q: %w", s, err)
@@ -132,29 +142,52 @@ func ParseRepoArg(s string) (Repo, error) {
 		if !ok {
 			return Repo{}, fmt.Errorf("%q is not a Bitbucket repository", s)
 		}
-		p := strings.TrimPrefix(u.Path, "/")
-		p = strings.TrimSuffix(p, ".git")
-		parts := strings.Split(p, "/")
-		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		if u.Scheme != "http" && u.Scheme != "https" {
 			return Repo{}, fmt.Errorf("invalid repository URL %q", s)
 		}
-		return Repo{Host: normHost, Workspace: parts[0], Name: strings.TrimSuffix(parts[1], ".git")}, nil
+		parts := strings.SplitN(strings.TrimPrefix(u.Path, "/"), "/", 3)
+		if len(parts) < 2 {
+			return Repo{}, fmt.Errorf("invalid repository URL %q", s)
+		}
+		ws, name, ok := splitRepoPath(parts[0] + "/" + parts[1])
+		if !ok {
+			return Repo{}, fmt.Errorf("invalid repository URL %q", s)
+		}
+		return Repo{Host: normHost, Workspace: ws, Name: name}, nil
 	}
 
-	// "ws/repo" shorthand (reject anything with a scheme-less host, extra
-	// segments, or missing parts).
-	p := strings.TrimSuffix(s, ".git")
-	parts := strings.Split(p, "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return Repo{}, fmt.Errorf("expected the \"OWNER/REPO\" format, got %q", s)
+	if strings.Contains(s, ":") {
+		// scp-like syntax that ParseRemoteURL rejected.
+		return Repo{}, fmt.Errorf("%q is not a Bitbucket repository", s)
 	}
-	return Repo{Host: bitbucketHost, Workspace: parts[0], Name: parts[1]}, nil
+
+	// "[HOST/]OWNER/REPO" shorthand.
+	host := bitbucketHost
+	p := s
+	if parts := strings.Split(s, "/"); len(parts) == 3 {
+		if parts[0] == "" {
+			return Repo{}, formatErr()
+		}
+		normHost, ok := normalizeHost(parts[0])
+		if !ok {
+			return Repo{}, fmt.Errorf("%q is not a Bitbucket host", parts[0])
+		}
+		host = normHost
+		p = parts[1] + "/" + parts[2]
+	} else if strings.HasPrefix(s, "/") {
+		return Repo{}, formatErr()
+	}
+	ws, name, ok := splitRepoPath(p)
+	if !ok {
+		return Repo{}, formatErr()
+	}
+	return Repo{Host: host, Workspace: ws, Name: name}, nil
 }
 
 // ResolvedRemote pairs a git Remote with the Bitbucket Repo it points to.
 type ResolvedRemote struct {
-	Remote
-	Repo
+	Remote Remote
+	Repo   Repo
 }
 
 // BitbucketRemotes filters remotes to those pointing at Bitbucket Cloud,
@@ -175,42 +208,28 @@ func BitbucketRemotes(remotes []Remote) []ResolvedRemote {
 }
 
 // ResolveRepo determines the base repository using the precedence:
-// override (-R) > BH_REPO env > upstream remote > origin remote > first
-// Bitbucket remote (in `git remote -v` order). When resolved from a flag or
-// env value, the returned *ResolvedRemote is the matching git remote if one
-// exists, otherwise nil.
+// override > upstream remote > origin remote > first Bitbucket remote (in
+// `git remote -v` order). The override (e.g. the -R flag or BH_REPO) is parsed
+// before git is consulted, so it works outside a git checkout; r may be nil in
+// that case. When resolved from the override, the returned *ResolvedRemote is
+// the matching git remote if one can be found, otherwise nil.
 func ResolveRepo(ctx context.Context, r Runner, override string) (Repo, *ResolvedRemote, error) {
+	if override = strings.TrimSpace(override); override != "" {
+		repo, err := ParseRepoArg(override)
+		if err != nil {
+			return Repo{}, nil, err
+		}
+		return repo, matchingRemote(ctx, r, repo), nil
+	}
+
+	if r == nil {
+		return Repo{}, nil, errors.New("no git runner available to resolve the repository; use `-R ws/repo` or set BH_REPO")
+	}
 	remotes, err := Remotes(ctx, r)
 	if err != nil {
 		return Repo{}, nil, err
 	}
 	bbRemotes := BitbucketRemotes(remotes)
-
-	// findMatch returns the remote whose repo equals want, or nil.
-	findMatch := func(want Repo) *ResolvedRemote {
-		for i := range bbRemotes {
-			if bbRemotes[i].Repo == want {
-				return &bbRemotes[i]
-			}
-		}
-		return nil
-	}
-
-	if override != "" {
-		repo, err := ParseRepoArg(override)
-		if err != nil {
-			return Repo{}, nil, err
-		}
-		return repo, findMatch(repo), nil
-	}
-
-	if env := strings.TrimSpace(os.Getenv("BH_REPO")); env != "" {
-		repo, err := ParseRepoArg(env)
-		if err != nil {
-			return Repo{}, nil, err
-		}
-		return repo, findMatch(repo), nil
-	}
 
 	byName := func(name string) *ResolvedRemote {
 		for i := range bbRemotes {
@@ -233,4 +252,23 @@ func ResolveRepo(ctx context.Context, r Runner, override string) (Repo, *Resolve
 	}
 
 	return Repo{}, nil, errors.New("none of the git remotes point to a Bitbucket repository; use `-R ws/repo` or set BH_REPO")
+}
+
+// matchingRemote returns the Bitbucket remote pointing at want, or nil. Any
+// failure to list remotes (no runner, not a git checkout, git missing) is
+// treated as "no match".
+func matchingRemote(ctx context.Context, r Runner, want Repo) *ResolvedRemote {
+	if r == nil {
+		return nil
+	}
+	remotes, err := Remotes(ctx, r)
+	if err != nil {
+		return nil
+	}
+	for _, rr := range BitbucketRemotes(remotes) {
+		if rr.Repo == want {
+			return &rr
+		}
+	}
+	return nil
 }

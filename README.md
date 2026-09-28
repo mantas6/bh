@@ -71,7 +71,9 @@ When set, it takes precedence over `hosts.yml`.
 
 Commands that operate on a repository resolve it in this order:
 
-1. The `-R`/`--repo` flag (`ws/repo` or a full Bitbucket URL).
+1. The `-R`/`--repo` flag (`ws/repo`, `bitbucket.org/ws/repo`, or a Bitbucket
+   web/clone URL such as `git@bitbucket.org:ws/repo.git`). This works outside
+   a git checkout.
 2. The `BH_REPO` environment variable.
 3. The `upstream` git remote.
 4. The `origin` git remote.

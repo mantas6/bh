@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/browser"
@@ -66,12 +67,28 @@ func NewFactory(version string) *Factory {
 	}
 
 	f.BaseRepo = func() (git.Repo, *git.ResolvedRemote, error) {
+		override := repoOverride(f.RepoOverride, os.Getenv)
 		gitRunner, err := f.Git()
 		if err != nil {
-			return git.Repo{}, nil, err
+			if override == "" {
+				return git.Repo{}, nil, err
+			}
+			// An explicit repository doesn't need git; only the
+			// matching-remote lookup is skipped.
+			gitRunner = nil
 		}
-		return git.ResolveRepo(context.Background(), gitRunner, f.RepoOverride)
+		return git.ResolveRepo(context.Background(), gitRunner, override)
 	}
 
 	return f
+}
+
+// repoOverride combines the -R/--repo flag value and the BH_REPO environment
+// variable into the single override passed to git.ResolveRepo. The flag wins
+// over the environment.
+func repoOverride(flag string, getenv func(string) string) string {
+	if flag = strings.TrimSpace(flag); flag != "" {
+		return flag
+	}
+	return strings.TrimSpace(getenv("BH_REPO"))
 }

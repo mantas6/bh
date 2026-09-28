@@ -182,7 +182,6 @@ func TestRemotesIntegration(t *testing.T) {
 		t.Skip("git not found in PATH")
 	}
 
-	t.Setenv("BH_REPO", "")
 	dir := t.TempDir()
 	c := &Client{GitPath: gitPath, Dir: dir}
 	ctx := context.Background()

@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/mantas6/bh/internal/git/gittest"
@@ -66,12 +67,30 @@ func TestParseRepoArg(t *testing.T) {
 		{"url .git", "https://bitbucket.org/ws/repo.git", false, want},
 		{"url trailing path", "https://bitbucket.org/ws/repo/pull-requests/1", false, want},
 		{"altssh url", "https://altssh.bitbucket.org/ws/repo", false, want},
+		{"url trailing slash", "https://bitbucket.org/ws/repo/", false, want},
+		{"surrounding space", "  ws/repo  ", false, want},
+		{"scp", "git@bitbucket.org:ws/repo", false, want},
+		{"scp .git", "git@bitbucket.org:ws/repo.git", false, want},
+		{"ssh url", "ssh://git@bitbucket.org/ws/repo.git", false, want},
+		{"ssh altssh port", "ssh://git@altssh.bitbucket.org:443/ws/repo.git", false, want},
+		{"host shorthand", "bitbucket.org/ws/repo", false, want},
+		{"host shorthand .git", "bitbucket.org/ws/repo.git", false, want},
+		{"host shorthand uppercase", "BitBucket.org/ws/repo", false, want},
 
 		{"empty", "", true, Repo{}},
+		{"blank", "   ", true, Repo{}},
 		{"single segment", "repo", true, Repo{}},
 		{"too many segments", "a/b/c", true, Repo{}},
+		{"host shorthand too many", "bitbucket.org/ws/repo/extra", true, Repo{}},
+		{"non-bitbucket host shorthand", "github.com/ws/repo", true, Repo{}},
+		{"leading slash", "/ws/repo", true, Repo{}},
 		{"github url", "https://github.com/ws/repo", true, Repo{}},
+		{"github scp", "git@github.com:ws/repo", true, Repo{}},
+		{"scp too many", "git@bitbucket.org:ws/repo/extra", true, Repo{}},
+		{"ssh url too many", "ssh://git@bitbucket.org/ws/repo/extra", true, Repo{}},
+		{"url single segment", "https://bitbucket.org/ws", true, Repo{}},
 		{"missing name", "ws/", true, Repo{}},
+		{"missing workspace", "/repo", true, Repo{}},
 	}
 
 	for _, tt := range tests {
@@ -109,7 +128,6 @@ func TestResolveRepo(t *testing.T) {
 	upstream := Repo{Host: "bitbucket.org", Workspace: "ups", Name: "repo"}
 
 	t.Run("upstream over origin", func(t *testing.T) {
-		t.Setenv("BH_REPO", "")
 		s := gittest.New().Register(remoteVOutput(
 			[2]string{"origin", "git@bitbucket.org:ows/repo.git"},
 			[2]string{"upstream", "https://bitbucket.org/ups/repo.git"},
@@ -128,7 +146,6 @@ func TestResolveRepo(t *testing.T) {
 	})
 
 	t.Run("origin when no upstream", func(t *testing.T) {
-		t.Setenv("BH_REPO", "")
 		s := gittest.New().Register(remoteVOutput(
 			[2]string{"origin", "git@bitbucket.org:ows/repo.git"},
 		), nil, "remote", "-v")
@@ -146,7 +163,6 @@ func TestResolveRepo(t *testing.T) {
 	})
 
 	t.Run("first bitbucket remote", func(t *testing.T) {
-		t.Setenv("BH_REPO", "")
 		s := gittest.New().Register(remoteVOutput(
 			[2]string{"gh", "git@github.com:x/y.git"},
 			[2]string{"bb", "git@bitbucket.org:ows/repo.git"},
@@ -165,7 +181,6 @@ func TestResolveRepo(t *testing.T) {
 	})
 
 	t.Run("override flag", func(t *testing.T) {
-		t.Setenv("BH_REPO", "")
 		s := gittest.New().Register(remoteVOutput(
 			[2]string{"origin", "git@bitbucket.org:ows/repo.git"},
 		), nil, "remote", "-v")
@@ -183,7 +198,6 @@ func TestResolveRepo(t *testing.T) {
 	})
 
 	t.Run("override matches remote", func(t *testing.T) {
-		t.Setenv("BH_REPO", "")
 		s := gittest.New().Register(remoteVOutput(
 			[2]string{"origin", "git@bitbucket.org:ows/repo.git"},
 		), nil, "remote", "-v")
@@ -197,36 +211,81 @@ func TestResolveRepo(t *testing.T) {
 		}
 	})
 
-	t.Run("env over remotes", func(t *testing.T) {
-		t.Setenv("BH_REPO", "envws/repo")
+	t.Run("override matches scp remote via URL form", func(t *testing.T) {
 		s := gittest.New().Register(remoteVOutput(
-			[2]string{"origin", "git@bitbucket.org:ows/repo.git"},
+			[2]string{"origin", "https://bitbucket.org/ows/repo.git"},
 		), nil, "remote", "-v")
 
-		repo, _, err := ResolveRepo(ctx, s, "")
+		repo, rr, err := ResolveRepo(ctx, s, "git@bitbucket.org:ows/repo.git")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := (Repo{Host: "bitbucket.org", Workspace: "envws", Name: "repo"}); repo != want {
-			t.Fatalf("repo = %+v, want %+v", repo, want)
+		if repo != origin {
+			t.Fatalf("repo = %+v, want %+v", repo, origin)
+		}
+		if rr == nil || rr.Remote.Name != "origin" {
+			t.Fatalf("resolved remote = %+v, want origin", rr)
 		}
 	})
 
-	t.Run("flag over env", func(t *testing.T) {
-		t.Setenv("BH_REPO", "envws/repo")
-		s := gittest.New().Register("", nil, "remote", "-v")
+	t.Run("override outside git checkout", func(t *testing.T) {
+		notRepo := &GitError{Args: []string{"remote", "-v"}, ExitCode: 128, Stderr: "fatal: not a git repository"}
+		s := gittest.New().Register("", notRepo, "remote", "-v")
 
-		repo, _, err := ResolveRepo(ctx, s, "flagws/repo")
+		repo, rr, err := ResolveRepo(ctx, s, "ws/repo")
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("unexpected error: %v", err)
 		}
-		if want := (Repo{Host: "bitbucket.org", Workspace: "flagws", Name: "repo"}); repo != want {
+		if want := (Repo{Host: "bitbucket.org", Workspace: "ws", Name: "repo"}); repo != want {
 			t.Fatalf("repo = %+v, want %+v", repo, want)
+		}
+		if rr != nil {
+			t.Fatalf("resolved remote = %+v, want nil", rr)
+		}
+	})
+
+	t.Run("override with nil runner", func(t *testing.T) {
+		repo, rr, err := ResolveRepo(ctx, nil, "bitbucket.org/ws/repo")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if want := (Repo{Host: "bitbucket.org", Workspace: "ws", Name: "repo"}); repo != want {
+			t.Fatalf("repo = %+v, want %+v", repo, want)
+		}
+		if rr != nil {
+			t.Fatalf("resolved remote = %+v, want nil", rr)
+		}
+	})
+
+	t.Run("invalid override does not run git", func(t *testing.T) {
+		s := gittest.New()
+		s.FailUnstubbed = true
+
+		if _, _, err := ResolveRepo(ctx, s, "not-a-repo"); err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if len(s.Calls) != 0 {
+			t.Fatalf("git calls = %v, want none", s.CallStrings())
+		}
+	})
+
+	t.Run("remotes error without override", func(t *testing.T) {
+		notRepo := &GitError{Args: []string{"remote", "-v"}, ExitCode: 128, Stderr: "fatal: not a git repository"}
+		s := gittest.New().Register("", notRepo, "remote", "-v")
+
+		_, _, err := ResolveRepo(ctx, s, "")
+		if !errors.Is(err, notRepo) {
+			t.Fatalf("error = %v, want %v", err, notRepo)
+		}
+	})
+
+	t.Run("nil runner without override", func(t *testing.T) {
+		if _, _, err := ResolveRepo(ctx, nil, ""); err == nil {
+			t.Fatal("expected error, got nil")
 		}
 	})
 
 	t.Run("no bitbucket remote", func(t *testing.T) {
-		t.Setenv("BH_REPO", "")
 		s := gittest.New().Register(remoteVOutput(
 			[2]string{"origin", "git@github.com:x/y.git"},
 		), nil, "remote", "-v")
@@ -240,4 +299,22 @@ func TestResolveRepo(t *testing.T) {
 			t.Fatalf("error = %q, want %q", err.Error(), wantMsg)
 		}
 	})
+}
+
+func TestBitbucketRemotes(t *testing.T) {
+	remotes := []Remote{
+		{Name: "gh", FetchURL: "git@github.com:x/y.git", PushURL: "git@github.com:x/y.git"},
+		{Name: "origin", FetchURL: "/local/mirror", PushURL: "git@bitbucket.org:ows/repo.git"},
+	}
+	got := BitbucketRemotes(remotes)
+	if len(got) != 1 {
+		t.Fatalf("got %d remotes, want 1: %+v", len(got), got)
+	}
+	want := ResolvedRemote{
+		Remote: remotes[1],
+		Repo:   Repo{Host: "bitbucket.org", Workspace: "ows", Name: "repo"},
+	}
+	if got[0] != want {
+		t.Fatalf("got %+v, want %+v", got[0], want)
+	}
 }
