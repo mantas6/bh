@@ -6,6 +6,7 @@ import (
 )
 
 func TestResolveVersion(t *testing.T) {
+	t.Parallel()
 	vcs := func(rev, modified string) []debug.BuildSetting {
 		return []debug.BuildSetting{
 			{Key: "vcs", Value: "git"},

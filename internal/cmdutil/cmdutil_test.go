@@ -12,6 +12,7 @@ import (
 )
 
 func TestNotLoggedInError(t *testing.T) {
+	t.Parallel()
 	err := NotLoggedInError("bitbucket.org")
 	if got, want := err.Error(), "not logged in to bitbucket.org; run `bh auth login` or set BH_TOKEN"; got != want {
 		t.Errorf("Error() = %q, want %q", got, want)
@@ -25,6 +26,7 @@ func TestNotLoggedInError(t *testing.T) {
 }
 
 func TestHintFor(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		err  error
@@ -71,6 +73,7 @@ func assertFlagError(t *testing.T, err error, wantSubstr string) {
 }
 
 func TestMutuallyExclusive(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		conds []bool
@@ -84,6 +87,7 @@ func TestMutuallyExclusive(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := MutuallyExclusive("pick one", tt.conds...)
 			if !tt.err {
 				if err != nil {
@@ -113,6 +117,7 @@ func bodyCmd(body, bodyFile *string) *cobra.Command {
 }
 
 func TestAddBodyFlags(t *testing.T) {
+	t.Parallel()
 	var body, bodyFile string
 	cmd := bodyCmd(&body, &bodyFile)
 	cmd.SetArgs([]string{"-b", "hello", "-F", "notes.md"})
@@ -145,6 +150,7 @@ func runArgs(t *testing.T, v cobra.PositionalArgs, args ...string) error {
 }
 
 func TestNoArgs(t *testing.T) {
+	t.Parallel()
 	if err := runArgs(t, NoArgs); err != nil {
 		t.Fatalf("no args: %v", err)
 	}
@@ -152,6 +158,7 @@ func TestNoArgs(t *testing.T) {
 }
 
 func TestMaxArgs(t *testing.T) {
+	t.Parallel()
 	for _, args := range [][]string{nil, {"a"}} {
 		if err := runArgs(t, MaxArgs(1), args...); err != nil {
 			t.Fatalf("MaxArgs(1) with %v: %v", args, err)
@@ -162,6 +169,7 @@ func TestMaxArgs(t *testing.T) {
 }
 
 func TestExactArgs(t *testing.T) {
+	t.Parallel()
 	v := ExactArgs(2, "a pull request and a comment id are required")
 	if err := runArgs(t, v, "1", "2"); err != nil {
 		t.Fatalf("exact: %v", err)
@@ -181,6 +189,7 @@ func (b *recordingBrowser) Browse(u string) error {
 }
 
 func TestOpenInBrowser(t *testing.T) {
+	t.Parallel()
 	ios, _, _, errOut := TestIOStreams()
 	b := &recordingBrowser{}
 	if err := OpenInBrowser(ios, b, "https://example.com/a"); err != nil {
@@ -211,6 +220,7 @@ func TestOpenInBrowser(t *testing.T) {
 }
 
 func TestPrintJSON(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	if err := PrintJSON(&buf, map[string]string{"url": "a&b"}); err != nil {
 		t.Fatalf("PrintJSON: %v", err)
@@ -233,6 +243,7 @@ func TestPrintJSON(t *testing.T) {
 }
 
 func TestHeredoc(t *testing.T) {
+	t.Parallel()
 	got := Heredoc(`
 		# comment
 		$ bh pr list
@@ -242,5 +253,93 @@ func TestHeredoc(t *testing.T) {
 	want := "# comment\n$ bh pr list\n\n  indented"
 	if got != want {
 		t.Errorf("Heredoc = %q, want %q", got, want)
+	}
+}
+
+func TestFlagErrorWrap(t *testing.T) {
+	t.Parallel()
+	base := errors.New("bad flag")
+	err := FlagErrorWrap(base)
+	if err.Error() != "bad flag" {
+		t.Errorf("Error() = %q", err.Error())
+	}
+	if !errors.Is(err, base) {
+		t.Error("FlagErrorWrap should unwrap to the wrapped error")
+	}
+	assertFlagError(t, fmt.Errorf("parsing: %w", err), "parsing: bad flag")
+}
+
+func TestIsUserCancellation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		err  error
+		want bool
+	}{
+		{nil, false},
+		{errors.New("boom"), false},
+		{ErrCancel, true},
+		{fmt.Errorf("prompt: %w", ErrCancel), true},
+		{ErrSilent, false},
+	}
+	for _, tt := range tests {
+		if got := IsUserCancellation(tt.err); got != tt.want {
+			t.Errorf("IsUserCancellation(%v) = %v, want %v", tt.err, got, tt.want)
+		}
+	}
+}
+
+func TestHeredocCases(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", ""},
+		{"single line", "hello", "hello"},
+		{"no leading newline", "\ta\n\t\tb\n", "a\n\tb"},
+		{"tabs", "\n\t\t$ bh pr list\n\t\t$ bh pr view 1\n\t", "$ bh pr list\n$ bh pr view 1"},
+		{"blank lines keep no whitespace", "\n    a\n      \n    b\n", "a\n\nb"},
+		{"already flush", "\na\n  b\n", "a\n  b"},
+		{"trailing newlines trimmed", "\n  a\n\n\n", "a"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := Heredoc(tt.in); got != tt.want {
+				t.Errorf("Heredoc(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidatorsAcceptWithinBounds(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		v    cobra.PositionalArgs
+		args []string
+		want string // "" means accepted
+	}{
+		{"NoArgs none", NoArgs, nil, ""},
+		{"NoArgs quote hint", NoArgs, []string{"My", "title"}, "quote values that contain spaces"},
+		{"MaxArgs(0) none", MaxArgs(0), nil, ""},
+		{"MaxArgs(0) one", MaxArgs(0), []string{"a"}, "at most 0 arguments, received 1"},
+		{"ExactArgs(1) missing", ExactArgs(1, "a pull request is required"), nil, "a pull request is required"},
+		{"ExactArgs(1) one", ExactArgs(1, "x"), []string{"a"}, ""},
+		{"ExactArgs(1) two", ExactArgs(1, "x"), []string{"a", "b"}, "at most 1 argument, received 2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := runArgs(t, tt.v, tt.args...)
+			if tt.want == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			assertFlagError(t, err, tt.want)
+		})
 	}
 }

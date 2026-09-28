@@ -5,6 +5,7 @@ import (
 )
 
 func TestParsePRArg(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name       string
 		arg        string
@@ -35,6 +36,7 @@ func TestParsePRArg(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			sel, err := ParsePRArg(tc.arg)
 			if tc.wantErr {
 				if err == nil {

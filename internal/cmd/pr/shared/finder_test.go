@@ -8,41 +8,19 @@ import (
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
+	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/git"
 	"github.com/mantas6/bh/internal/git/gittest"
 )
 
-func testRepo() git.Repo {
-	return git.Repo{Host: "bitbucket.org", Workspace: "myws", Name: "myrepo"}
-}
-
-func originRemote() *git.ResolvedRemote {
-	return &git.ResolvedRemote{
-		Remote: git.Remote{Name: "origin", FetchURL: "git@bitbucket.org:myws/myrepo.git"},
-		Repo:   testRepo(),
-	}
-}
-
-func samplePR() *api.PullRequest {
-	return &api.PullRequest{
-		ID:    123,
-		Title: "Add feature",
-		State: "OPEN",
-		Source: api.PRRef{
-			Branch:     api.Branch{Name: "feature"},
-			Repository: &api.Repository{FullName: "myws/myrepo"},
-		},
-	}
-}
-
-// newFinder builds a Finder whose BaseRepo yields testRepo/originRemote and
+// newFinder builds a Finder whose BaseRepo yields TestRepo/OriginRemote and
 // whose Git provider returns stub. A nil stub makes Git fail the test, for
 // asserting that git is not consulted.
 func newFinder(t *testing.T, srv *apitest.Server, stub *gittest.Stub) *Finder {
 	t.Helper()
 	return NewFinder(
-		func(context.Context) (git.Repo, *git.ResolvedRemote, error) { return testRepo(), originRemote(), nil },
-		func() (*api.Client, error) { return srv.APIClient(), nil },
+		cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
+		cmdtest.ClientFunc(srv),
 		func() (git.Runner, error) {
 			if stub == nil {
 				t.Error("git should not be needed")
@@ -54,10 +32,12 @@ func newFinder(t *testing.T, srv *apitest.Server, stub *gittest.Stub) *Finder {
 }
 
 func TestFindByNumber(t *testing.T) {
+	t.Parallel()
 	for _, arg := range []string{"123", "#123"} {
 		t.Run(arg, func(t *testing.T) {
+			t.Parallel()
 			srv := apitest.New(t)
-			srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
+			srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
 
 			found, err := newFinder(t, srv, nil).Find(t.Context(), arg)
 			if err != nil {
@@ -66,7 +46,7 @@ func TestFindByNumber(t *testing.T) {
 			if found.PR.ID != 123 {
 				t.Errorf("id = %d", found.PR.ID)
 			}
-			if found.Repo != testRepo() {
+			if found.Repo != cmdtest.TestRepo() {
 				t.Errorf("repo = %v", found.Repo)
 			}
 			if found.Remote == nil || found.Remote.Remote.Name != "origin" {
@@ -80,12 +60,16 @@ func TestFindByNumber(t *testing.T) {
 }
 
 func TestFindIDSkipsFetchForNumber(t *testing.T) {
+	t.Parallel()
 	for _, arg := range []string{"123", "https://bitbucket.org/other/repo/pull-requests/123"} {
 		t.Run(arg, func(t *testing.T) {
+			t.Parallel()
 			// No routes: any request fails the test.
 			srv := apitest.New(t)
 
-			found, err := newFinder(t, srv, gittest.New()).FindID(t.Context(), arg)
+			// A URL only consults git for a matching local remote.
+			stub := gittest.New(t).Register("", nil, "remote", "-v")
+			found, err := newFinder(t, srv, stub).FindID(t.Context(), arg)
 			if err != nil {
 				t.Fatalf("FindID: %v", err)
 			}
@@ -106,9 +90,10 @@ func TestFindIDSkipsFetchForNumber(t *testing.T) {
 }
 
 func TestFindIDLooksUpBranch(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200,
-		map[string]any{"values": []api.PullRequest{*samplePR()}})
+		map[string]any{"values": []api.PullRequest{*cmdtest.SamplePR()}})
 
 	found, err := newFinder(t, srv, nil).FindID(t.Context(), "feature")
 	if err != nil {
@@ -120,9 +105,10 @@ func TestFindIDLooksUpBranch(t *testing.T) {
 }
 
 func TestFindByBranch(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200,
-		map[string]any{"values": []api.PullRequest{*samplePR()}})
+		map[string]any{"values": []api.PullRequest{*cmdtest.SamplePR()}})
 
 	found, err := newFinder(t, srv, nil).Find(t.Context(), "feature")
 	if err != nil {
@@ -134,12 +120,13 @@ func TestFindByBranch(t *testing.T) {
 	if len(srv.Requests()) != 1 {
 		t.Fatalf("requests = %d, want 1", len(srv.Requests()))
 	}
-	if q := srv.Requests()[0].Query.Get("q"); !strings.Contains(q, `source.branch.name="feature"`) {
+	if q := cmdtest.RequireRequest(t, srv, "GET", "/pullrequests").Query.Get("q"); !strings.Contains(q, `source.branch.name="feature"`) {
 		t.Errorf("q = %q", q)
 	}
 }
 
 func TestFindByBranchNoPR(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200,
 		map[string]any{"values": []api.PullRequest{}})
@@ -151,15 +138,16 @@ func TestFindByBranchNoPR(t *testing.T) {
 }
 
 func TestFindByURLNeedsNoGitOrBaseRepo(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/other/repo/pullrequests/7", 200, samplePR())
+	srv.Handle("GET", "/repositories/other/repo/pullrequests/7", 200, cmdtest.SamplePR())
 
 	f := NewFinder(
 		func(context.Context) (git.Repo, *git.ResolvedRemote, error) {
 			t.Error("BaseRepo should not be called for a URL")
 			return git.Repo{}, nil, errors.New("not a git repository")
 		},
-		func() (*api.Client, error) { return srv.APIClient(), nil },
+		cmdtest.ClientFunc(srv),
 		func() (git.Runner, error) { return nil, errors.New("git executable not found") },
 	)
 
@@ -176,11 +164,13 @@ func TestFindByURLNeedsNoGitOrBaseRepo(t *testing.T) {
 }
 
 func TestFindByURLStrictGitOutsideCheckout(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/other/repo/pullrequests/7", 200, samplePR())
+	srv.Handle("GET", "/repositories/other/repo/pullrequests/7", 200, cmdtest.SamplePR())
 
-	stub := gittest.New()
-	stub.FailUnstubbed = true
+	// Listing remotes fails outside a checkout; nothing else may be run.
+	notRepo := &git.Error{Args: []string{"remote", "-v"}, ExitCode: 128, Stderr: "fatal: not a git repository"}
+	stub := gittest.New(t).ExpectResponse("", notRepo, "remote", "-v")
 
 	found, err := newFinder(t, srv, stub).Find(t.Context(), "https://bitbucket.org/other/repo/pull-requests/7")
 	if err != nil {
@@ -189,18 +179,14 @@ func TestFindByURLStrictGitOutsideCheckout(t *testing.T) {
 	if found.Remote != nil {
 		t.Errorf("remote = %v, want nil", found.Remote)
 	}
-	for _, c := range stub.CallStrings() {
-		if c != "remote -v" {
-			t.Errorf("unexpected git call %q", c)
-		}
-	}
 }
 
 func TestFindByURLMatchesLocalRemote(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/other/repo/pullrequests/7", 200, samplePR())
+	srv.Handle("GET", "/repositories/other/repo/pullrequests/7", 200, cmdtest.SamplePR())
 
-	stub := gittest.New().Register(
+	stub := gittest.New(t).Register(
 		"origin\tgit@bitbucket.org:myws/myrepo.git (fetch)\n"+
 			"fork\thttps://bitbucket.org/other/repo.git (fetch)\n",
 		nil, "remote", "-v")
@@ -215,11 +201,12 @@ func TestFindByURLMatchesLocalRemote(t *testing.T) {
 }
 
 func TestFindCurrentBranch(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200,
-		map[string]any{"values": []api.PullRequest{*samplePR()}})
+		map[string]any{"values": []api.PullRequest{*cmdtest.SamplePR()}})
 
-	stub := gittest.New().Register("feature", nil, "symbolic-ref", "--quiet", "--short", "HEAD")
+	stub := gittest.New(t).Register("feature", nil, "symbolic-ref", "--quiet", "--short", "HEAD")
 
 	found, err := newFinder(t, srv, stub).Find(t.Context(), "")
 	if err != nil {
@@ -228,15 +215,16 @@ func TestFindCurrentBranch(t *testing.T) {
 	if found.PR.ID != 123 {
 		t.Errorf("id = %d", found.PR.ID)
 	}
-	if q := srv.Requests()[0].Query.Get("q"); !strings.Contains(q, `source.branch.name="feature"`) {
+	if q := cmdtest.RequireRequest(t, srv, "GET", "/pullrequests").Query.Get("q"); !strings.Contains(q, `source.branch.name="feature"`) {
 		t.Errorf("q = %q", q)
 	}
 }
 
 func TestFindDetachedHead(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 
-	stub := gittest.New().Register("", gittest.Exit(1), "symbolic-ref", "--quiet", "--short", "HEAD")
+	stub := gittest.New(t).Register("", gittest.Exit(1), "symbolic-ref", "--quiet", "--short", "HEAD")
 
 	_, err := newFinder(t, srv, stub).Find(t.Context(), "")
 	if err == nil || err.Error() != "no pull request specified and not on a branch" {
@@ -245,11 +233,12 @@ func TestFindDetachedHead(t *testing.T) {
 }
 
 func TestFindCurrentBranchGitUnavailable(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 
 	f := NewFinder(
-		func(context.Context) (git.Repo, *git.ResolvedRemote, error) { return testRepo(), nil, nil },
-		func() (*api.Client, error) { return srv.APIClient(), nil },
+		func(context.Context) (git.Repo, *git.ResolvedRemote, error) { return cmdtest.TestRepo(), nil, nil },
+		cmdtest.ClientFunc(srv),
 		func() (git.Runner, error) { return nil, errors.New("git executable not found") },
 	)
 	_, err := f.Find(t.Context(), "")
@@ -259,6 +248,7 @@ func TestFindCurrentBranchGitUnavailable(t *testing.T) {
 }
 
 func TestFindInvalidArg(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	_, err := newFinder(t, srv, nil).Find(t.Context(), "#abc")
 	if err == nil {

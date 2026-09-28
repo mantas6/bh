@@ -2,27 +2,28 @@ package pr
 
 import (
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
+	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/cmdutil"
 )
 
 func newListOptions(srv *apitest.Server) *ListOptions {
 	return &ListOptions{
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		BaseRepo:  baseRepoFunc(nil),
-		Now:       fixedNow,
+		APIClient: cmdtest.ClientFunc(srv),
+		BaseRepo:  cmdtest.BaseRepoFunc(nil),
+		Now:       cmdtest.FixedNow,
 		State:     "open",
 	}
 }
 
 func TestListNonTTY(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, valuesPage([]api.PullRequest{*samplePR()}))
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, cmdtest.ValuesPage([]api.PullRequest{*cmdtest.SamplePR()}))
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := newListOptions(srv)
@@ -42,8 +43,9 @@ func TestListNonTTY(t *testing.T) {
 }
 
 func TestListTTYHeader(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, valuesPage([]api.PullRequest{*samplePR()}))
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, cmdtest.ValuesPage([]api.PullRequest{*cmdtest.SamplePR()}))
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	ios.SetStdoutTTY(true)
@@ -61,8 +63,9 @@ func TestListTTYHeader(t *testing.T) {
 }
 
 func TestListEmptyTTY(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, valuesPage([]api.PullRequest{}))
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, cmdtest.ValuesPage([]api.PullRequest{}))
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	ios.SetStdoutTTY(true)
@@ -78,8 +81,9 @@ func TestListEmptyTTY(t *testing.T) {
 }
 
 func TestListJSON(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, valuesPage([]api.PullRequest{*samplePR()}))
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, cmdtest.ValuesPage([]api.PullRequest{*cmdtest.SamplePR()}))
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := newListOptions(srv)
@@ -100,9 +104,10 @@ func TestListJSON(t *testing.T) {
 }
 
 func TestListStateAllAuthorMe(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/user", 200, api.User{UUID: "{me-uuid}", Nickname: "me"})
-	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, valuesPage([]api.PullRequest{*samplePR()}))
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, cmdtest.ValuesPage([]api.PullRequest{*cmdtest.SamplePR()}))
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := newListOptions(srv)
@@ -115,16 +120,7 @@ func TestListStateAllAuthorMe(t *testing.T) {
 		t.Fatalf("listRun: %v", err)
 	}
 
-	var listReq *apitest.Request
-	reqs := srv.Requests()
-	for i := range reqs {
-		if strings.HasSuffix(reqs[i].Path, "/pullrequests") {
-			listReq = &reqs[i]
-		}
-	}
-	if listReq == nil {
-		t.Fatal("no list request recorded")
-	}
+	listReq := cmdtest.RequireRequest(t, srv, "GET", "/pullrequests")
 	states := listReq.Query["state"]
 	if len(states) != 4 {
 		t.Errorf("state params = %v, want 4", states)
@@ -139,8 +135,9 @@ func TestListStateAllAuthorMe(t *testing.T) {
 }
 
 func TestListSearchAloneNotParenthesised(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, valuesPage([]api.PullRequest{}))
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, cmdtest.ValuesPage([]api.PullRequest{}))
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := newListOptions(srv)
@@ -150,14 +147,15 @@ func TestListSearchAloneNotParenthesised(t *testing.T) {
 	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
-	if q := findRequest(srv, "GET", "/pullrequests").Query.Get("q"); q != `title ~ "x"` {
+	if q := cmdtest.RequireRequest(t, srv, "GET", "/pullrequests").Query.Get("q"); q != `title ~ "x"` {
 		t.Errorf("q = %q", q)
 	}
 }
 
 func TestListAuthorEscaped(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, valuesPage([]api.PullRequest{}))
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, cmdtest.ValuesPage([]api.PullRequest{}))
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := newListOptions(srv)
@@ -168,14 +166,15 @@ func TestListAuthorEscaped(t *testing.T) {
 		t.Fatalf("listRun: %v", err)
 	}
 	want := `author.nickname="ada\" OR author.nickname=\"bob"`
-	if q := findRequest(srv, "GET", "/pullrequests").Query.Get("q"); q != want {
+	if q := cmdtest.RequireRequest(t, srv, "GET", "/pullrequests").Query.Get("q"); q != want {
 		t.Errorf("q = %q, want %q", q, want)
 	}
 }
 
 func TestListJSONEmptyIsArray(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, valuesPage([]api.PullRequest{}))
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, cmdtest.ValuesPage([]api.PullRequest{}))
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := newListOptions(srv)
@@ -191,31 +190,27 @@ func TestListJSONEmptyIsArray(t *testing.T) {
 }
 
 func TestListInvalidLimit(t *testing.T) {
+	t.Parallel()
 	for _, limit := range []string{"0", "-1"} {
 		t.Run(limit, func(t *testing.T) {
-			ios, _, _, _ := cmdutil.TestIOStreams()
-			f := &cmdutil.Factory{IOStreams: ios}
+			t.Parallel()
+			f := cmdtest.NewFactory()
 			cmd := NewCmdList(f, func(o *ListOptions) error {
 				t.Error("runF should not be called")
 				return nil
 			})
-			cmd.SetArgs([]string{"-L", limit})
-			cmd.SetOut(ios.Out)
-			cmd.SetErr(ios.ErrOut)
-			err := cmd.Execute()
-			var fe *cmdutil.FlagError
-			if !errors.As(err, &fe) || !strings.Contains(err.Error(), "invalid value for --limit") {
-				t.Fatalf("err = %v, want --limit FlagError", err)
-			}
+			_, _, err := cmdtest.RunCommand(t, cmd, "-L", limit)
+			cmdtest.AssertFlagError(t, err, "invalid value for --limit")
 		})
 	}
 }
 
 func TestListWeb(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
-	fb := &fakeBrowser{}
+	fb := &cmdtest.FakeBrowser{}
 	opts := newListOptions(srv)
 	opts.IO = ios
 	opts.Web = true
@@ -224,16 +219,17 @@ func TestListWeb(t *testing.T) {
 	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
-	if fb.url != "https://bitbucket.org/myws/myrepo/pull-requests/" {
-		t.Errorf("web url = %q", fb.url)
+	if fb.URL() != "https://bitbucket.org/myws/myrepo/pull-requests/" {
+		t.Errorf("web url = %q", fb.URL())
 	}
 }
 
 func TestListInvalidState(t *testing.T) {
+	t.Parallel()
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &ListOptions{
 		IO:       ios,
-		BaseRepo: baseRepoFunc(nil),
+		BaseRepo: cmdtest.BaseRepoFunc(nil),
 		State:    "bogus",
 	}
 	err := listRun(t.Context(), opts)
@@ -243,18 +239,15 @@ func TestListInvalidState(t *testing.T) {
 }
 
 func TestListFlagParsing(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 
 	var captured *ListOptions
 	cmd := NewCmdList(f, func(o *ListOptions) error {
 		captured = o
 		return nil
 	})
-	cmd.SetArgs([]string{"--state", "merged", "-L", "5", "--author", "@me", "-s", "wip", "--json"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	if err := cmd.Execute(); err != nil {
+	if _, _, err := cmdtest.RunCommand(t, cmd, "--state", "merged", "-L", "5", "--author", "@me", "-s", "wip", "--json"); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if captured == nil {

@@ -7,25 +7,27 @@ import (
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
+	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git/gittest"
 )
 
-func newViewOptions(srv *apitest.Server) *ViewOptions {
+func newViewOptions(t *testing.T, srv *apitest.Server) *ViewOptions {
 	return &ViewOptions{
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(gittest.New()),
-		BaseRepo:  baseRepoFunc(nil),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:  cmdtest.BaseRepoFunc(nil),
 		Arg:       "123",
 	}
 }
 
 func TestViewText(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	opts := newViewOptions(srv)
+	opts := newViewOptions(t, srv)
 	opts.IO = ios
 
 	if err := viewRun(t.Context(), opts); err != nil {
@@ -48,13 +50,14 @@ func TestViewText(t *testing.T) {
 }
 
 func TestViewForkPrefix(t *testing.T) {
-	pr := samplePR()
+	t.Parallel()
+	pr := cmdtest.SamplePR()
 	pr.Source.Repository = &api.Repository{FullName: "fork/myrepo"}
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, pr)
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	opts := newViewOptions(srv)
+	opts := newViewOptions(t, srv)
 	opts.IO = ios
 
 	if err := viewRun(t.Context(), opts); err != nil {
@@ -66,13 +69,14 @@ func TestViewForkPrefix(t *testing.T) {
 }
 
 func TestViewNoDescription(t *testing.T) {
-	pr := samplePR()
+	t.Parallel()
+	pr := cmdtest.SamplePR()
 	pr.Description = ""
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, pr)
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	opts := newViewOptions(srv)
+	opts := newViewOptions(t, srv)
 	opts.IO = ios
 
 	if err := viewRun(t.Context(), opts); err != nil {
@@ -84,11 +88,12 @@ func TestViewNoDescription(t *testing.T) {
 }
 
 func TestViewJSON(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	opts := newViewOptions(srv)
+	opts := newViewOptions(t, srv)
 	opts.IO = ios
 	opts.JSON = true
 
@@ -105,12 +110,13 @@ func TestViewJSON(t *testing.T) {
 }
 
 func TestViewWeb(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
-	fb := &fakeBrowser{}
-	opts := newViewOptions(srv)
+	fb := &cmdtest.FakeBrowser{}
+	opts := newViewOptions(t, srv)
 	opts.IO = ios
 	opts.Web = true
 	opts.Browser = fb
@@ -118,7 +124,7 @@ func TestViewWeb(t *testing.T) {
 	if err := viewRun(t.Context(), opts); err != nil {
 		t.Fatalf("viewRun: %v", err)
 	}
-	if fb.url != "https://bitbucket.org/myws/myrepo/pull-requests/123" {
-		t.Errorf("web url = %q", fb.url)
+	if fb.URL() != "https://bitbucket.org/myws/myrepo/pull-requests/123" {
+		t.Errorf("web url = %q", fb.URL())
 	}
 }

@@ -9,6 +9,7 @@ import (
 )
 
 func TestCreateCommentReply(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/3/comments", 201,
 		map[string]any{"id": 100})
@@ -34,6 +35,7 @@ func TestCreateCommentReply(t *testing.T) {
 }
 
 func TestCreateCommentInline(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/3/comments", 201,
 		map[string]any{"id": 101})
@@ -65,6 +67,7 @@ func TestCreateCommentInline(t *testing.T) {
 }
 
 func TestListComments(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodGet, "/repositories/ws/repo/pullrequests/3/comments", 200,
 		`{"values":[{"id":1,"content":{"raw":"a"}},{"id":2,"content":{"raw":"b"}}]}`)
@@ -79,6 +82,7 @@ func TestListComments(t *testing.T) {
 }
 
 func TestResolveReopenDeleteComment(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/3/comments/9/resolve", 200, nil)
 	srv.Handle(http.MethodDelete, "/repositories/ws/repo/pullrequests/3/comments/9/resolve", 204, nil)

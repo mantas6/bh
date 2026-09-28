@@ -1,19 +1,19 @@
 package pr
 
 import (
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
+	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git/gittest"
 )
 
 func mergePR() *api.PullRequest {
-	pr := samplePR()
+	pr := cmdtest.SamplePR()
 	pr.State = "OPEN"
 	pr.Source.Branch.Name = "feature"
 	pr.Source.Repository = &api.Repository{FullName: "myws/myrepo"}
@@ -24,6 +24,7 @@ func mergePR() *api.PullRequest {
 }
 
 func TestMergeDefaultStrategyTTYConfirmYes(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, mergePR())
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests/123/merge", 200, mergePR())
@@ -34,9 +35,9 @@ func TestMergeDefaultStrategyTTYConfirmYes(t *testing.T) {
 
 	opts := &MergeOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(gittest.New()),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Arg:       "123",
 	}
 	if err := mergeRun(t.Context(), opts); err != nil {
@@ -50,11 +51,8 @@ func TestMergeDefaultStrategyTTYConfirmYes(t *testing.T) {
 		t.Errorf("success missing: %q", errOut.String())
 	}
 
-	req := findRequest(srv, "POST", "/pullrequests/123/merge")
 	var body map[string]any
-	if err := json.Unmarshal(req.Body, &body); err != nil {
-		t.Fatalf("body: %v", err)
-	}
+	cmdtest.RequireRequest(t, srv, "POST", "/pullrequests/123/merge").DecodeJSON(t, &body)
 	// The server applies the branch default; bh must not pick one itself.
 	if v, ok := body["merge_strategy"]; ok {
 		t.Errorf("merge_strategy = %v, want omitted", v)
@@ -65,6 +63,7 @@ func TestMergeDefaultStrategyTTYConfirmYes(t *testing.T) {
 }
 
 func TestMergeYesWithoutStrategyOmitsStrategy(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	pr := mergePR()
 	pr.Destination.Branch.DefaultMergeStrategy = ""
@@ -74,9 +73,9 @@ func TestMergeYesWithoutStrategyOmitsStrategy(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(gittest.New()),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Arg:       "123",
 		Yes:       true,
 	}
@@ -84,30 +83,27 @@ func TestMergeYesWithoutStrategyOmitsStrategy(t *testing.T) {
 		t.Fatalf("mergeRun: %v", err)
 	}
 
-	req := findRequest(srv, "POST", "/pullrequests/123/merge")
 	var body map[string]any
-	if err := json.Unmarshal(req.Body, &body); err != nil {
-		t.Fatalf("body: %v", err)
-	}
+	cmdtest.RequireRequest(t, srv, "POST", "/pullrequests/123/merge").DecodeJSON(t, &body)
 	if v, ok := body["merge_strategy"]; ok {
 		t.Errorf("merge_strategy = %v, want omitted (not merge_commit)", v)
 	}
 }
 
 func TestMergeDeleteBranchWithoutRemoteSkipsLocalCleanup(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, mergePR())
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests/123/merge", 200, mergePR())
 
-	stub := gittest.New()
-	stub.FailUnstubbed = true
+	stub := gittest.New(t)
 
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:           ios,
-		APIClient:    func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:          gitFunc(stub),
-		BaseRepo:     baseRepoFunc(nil),
+		APIClient:    cmdtest.ClientFunc(srv),
+		Git:          cmdtest.GitFunc(stub),
+		BaseRepo:     cmdtest.BaseRepoFunc(nil),
 		Arg:          "123",
 		Merge:        true,
 		DeleteBranch: true,
@@ -115,7 +111,7 @@ func TestMergeDeleteBranchWithoutRemoteSkipsLocalCleanup(t *testing.T) {
 	if err := mergeRun(t.Context(), opts); err != nil {
 		t.Fatalf("mergeRun: %v", err)
 	}
-	if len(stub.Calls) != 0 {
+	if len(stub.Calls()) != 0 {
 		t.Errorf("unexpected git calls: %v", stub.CallStrings())
 	}
 	if !strings.Contains(errOut.String(), "Skipped deleting local branch feature: no git remote found for myws/myrepo") {
@@ -124,6 +120,7 @@ func TestMergeDeleteBranchWithoutRemoteSkipsLocalCleanup(t *testing.T) {
 }
 
 func TestMergeURLRepoUsedForSameRepoCheck(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	pr := mergePR()
 	pr.Source.Repository = &api.Repository{FullName: "other/repo"}
@@ -131,17 +128,19 @@ func TestMergeURLRepoUsedForSameRepoCheck(t *testing.T) {
 	srv.Handle("GET", "/repositories/other/repo/pullrequests/123", 200, pr)
 	srv.Handle("POST", "/repositories/other/repo/pullrequests/123/merge", 200, pr)
 
-	stub := gittest.New()
+	stub := gittest.New(t)
 	stub.Register("origin\tgit@bitbucket.org:other/repo.git (fetch)\norigin\tgit@bitbucket.org:other/repo.git (push)\n",
 		nil, "remote", "-v")
 	stub.Register("feature", nil, "symbolic-ref", "--quiet", "--short", "HEAD")
+	stub.Register("", nil, "checkout", "--end-of-options", "main")
+	stub.Expect("branch", "-D", "--end-of-options", "feature")
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:           ios,
-		APIClient:    func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:          gitFunc(stub),
-		BaseRepo:     baseRepoFunc(nil),
+		APIClient:    cmdtest.ClientFunc(srv),
+		Git:          cmdtest.GitFunc(stub),
+		BaseRepo:     cmdtest.BaseRepoFunc(nil),
 		Arg:          "https://bitbucket.org/other/repo/pull-requests/123",
 		Merge:        true,
 		DeleteBranch: true,
@@ -149,13 +148,10 @@ func TestMergeURLRepoUsedForSameRepoCheck(t *testing.T) {
 	if err := mergeRun(t.Context(), opts); err != nil {
 		t.Fatalf("mergeRun: %v", err)
 	}
-	calls := strings.Join(stub.CallStrings(), "\n")
-	if !strings.Contains(calls, "branch -D --end-of-options feature") {
-		t.Errorf("local branch not deleted; calls:\n%s", calls)
-	}
 }
 
 func TestMergeConfirmNoCancels(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, mergePR())
 
@@ -165,9 +161,9 @@ func TestMergeConfirmNoCancels(t *testing.T) {
 
 	opts := &MergeOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(gittest.New()),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Arg:       "123",
 	}
 	err := mergeRun(t.Context(), opts)
@@ -177,15 +173,16 @@ func TestMergeConfirmNoCancels(t *testing.T) {
 }
 
 func TestMergeNonTTYWithoutFlagsErrors(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, mergePR())
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(gittest.New()),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Arg:       "123",
 	}
 	err := mergeRun(t.Context(), opts)
@@ -195,6 +192,7 @@ func TestMergeNonTTYWithoutFlagsErrors(t *testing.T) {
 }
 
 func TestMergeSquashWithMessageBody(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, mergePR())
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests/123/merge", 200, mergePR())
@@ -202,9 +200,9 @@ func TestMergeSquashWithMessageBody(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(gittest.New()),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Arg:       "123",
 		Squash:    true,
 		Message:   "custom message",
@@ -213,11 +211,8 @@ func TestMergeSquashWithMessageBody(t *testing.T) {
 		t.Fatalf("mergeRun: %v", err)
 	}
 
-	req := findRequest(srv, "POST", "/pullrequests/123/merge")
 	var body map[string]any
-	if err := json.Unmarshal(req.Body, &body); err != nil {
-		t.Fatalf("body: %v", err)
-	}
+	cmdtest.RequireRequest(t, srv, "POST", "/pullrequests/123/merge").DecodeJSON(t, &body)
 	if body["merge_strategy"] != "squash" {
 		t.Errorf("merge_strategy = %v", body["merge_strategy"])
 	}
@@ -233,20 +228,23 @@ func TestMergeSquashWithMessageBody(t *testing.T) {
 }
 
 func TestMergeDeleteBranchLocalCleanup(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, mergePR())
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests/123/merge", 200, mergePR())
 
-	stub := gittest.New()
+	stub := gittest.New(t)
+	stub.ExpectResponse("feature", nil, "symbolic-ref", "--quiet", "--short", "HEAD")
+	stub.Expect("checkout", "--end-of-options", "main")
+	stub.Expect("branch", "-D", "--end-of-options", "feature")
 	// Current branch equals the source branch.
-	stub.Register("feature", nil, "symbolic-ref", "--quiet", "--short", "HEAD")
 
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:           ios,
-		APIClient:    func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:          gitFunc(stub),
-		BaseRepo:     baseRepoFunc(originRemote()),
+		APIClient:    cmdtest.ClientFunc(srv),
+		Git:          cmdtest.GitFunc(stub),
+		BaseRepo:     cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Arg:          "123",
 		Merge:        true,
 		DeleteBranch: true,
@@ -255,24 +253,19 @@ func TestMergeDeleteBranchLocalCleanup(t *testing.T) {
 		t.Fatalf("mergeRun: %v", err)
 	}
 
-	assertCalls(t, stub.CallStrings(), []string{
-		"symbolic-ref --quiet --short HEAD",
-		"checkout --end-of-options main",
-		"branch -D --end-of-options feature",
-	})
 	if !strings.Contains(errOut.String(), "Deleted local branch feature") {
 		t.Errorf("cleanup message missing: %q", errOut.String())
 	}
 
-	req := findRequest(srv, "POST", "/pullrequests/123/merge")
 	var body map[string]any
-	json.Unmarshal(req.Body, &body)
+	cmdtest.RequireRequest(t, srv, "POST", "/pullrequests/123/merge").DecodeJSON(t, &body)
 	if body["close_source_branch"] != true {
 		t.Errorf("close_source_branch = %v, want true", body["close_source_branch"])
 	}
 }
 
 func TestMergeNotOpenErrors(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	pr := mergePR()
 	pr.State = "MERGED"
@@ -281,9 +274,9 @@ func TestMergeNotOpenErrors(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(gittest.New()),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Arg:       "123",
 		Merge:     true,
 	}
@@ -294,32 +287,23 @@ func TestMergeNotOpenErrors(t *testing.T) {
 }
 
 func TestMergeStrategyConflict(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 	cmd := NewCmdMerge(f, func(o *MergeOptions) error { return nil })
-	cmd.SetArgs([]string{"123", "--merge", "--squash"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	err := cmd.Execute()
-	var fe *cmdutil.FlagError
-	if err == nil || !errors.As(err, &fe) {
-		t.Fatalf("expected FlagError, got %v", err)
-	}
+	_, _, err := cmdtest.RunCommand(t, cmd, "123", "--merge", "--squash")
+	cmdtest.AssertFlagError(t, err, "")
 }
 
 func TestMergeFlagParsing(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 
 	var captured *MergeOptions
 	cmd := NewCmdMerge(f, func(o *MergeOptions) error {
 		captured = o
 		return nil
 	})
-	cmd.SetArgs([]string{"123", "--squash", "-m", "msg", "-d", "-y"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	if err := cmd.Execute(); err != nil {
+	if _, _, err := cmdtest.RunCommand(t, cmd, "123", "--squash", "-m", "msg", "-d", "-y"); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if captured.Arg != "123" || !captured.Squash || captured.Message != "msg" || !captured.DeleteBranch || !captured.Yes {

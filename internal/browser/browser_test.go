@@ -6,6 +6,7 @@ import (
 )
 
 func TestCommand(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		goos     string
@@ -21,6 +22,7 @@ func TestCommand(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			b := &Browser{
 				GOOS: tc.goos,
 				Env:  func(string) string { return tc.browser },
@@ -40,6 +42,7 @@ func TestCommand(t *testing.T) {
 }
 
 func TestBrowseInvokesRunner(t *testing.T) {
+	t.Parallel()
 	var gotName string
 	var gotArgs []string
 	b := &Browser{

@@ -9,12 +9,14 @@ import (
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
+	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
 	"github.com/spf13/cobra"
 )
 
 func TestHandleError(t *testing.T) {
+	t.Parallel()
 	parent := &cobra.Command{Use: "bh"}
 	child := &cobra.Command{Use: "list"}
 	parent.AddCommand(child)
@@ -100,12 +102,13 @@ func TestHandleError(t *testing.T) {
 // cancelled context: the API request must not be sent and the error must map
 // to the interrupt exit code.
 func TestCancelledContextAbortsCommand(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t) // no routes: any request that reaches it fails the test
 
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	f := &cmdutil.Factory{
 		IOStreams: ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
+		APIClient: cmdtest.ClientFunc(srv),
 		BaseRepo: func(ctx context.Context) (git.Repo, *git.ResolvedRemote, error) {
 			return git.Repo{Host: "bitbucket.org", Workspace: "ws", Name: "repo"}, nil, nil
 		},

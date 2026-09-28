@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/mantas6/bh/internal/api"
+	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/cmdutil"
 )
 
 func TestUserName(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		user *api.User
@@ -22,6 +24,7 @@ func TestUserName(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if got := UserName(tc.user); got != tc.want {
 				t.Errorf("UserName = %q, want %q", got, tc.want)
 			}
@@ -30,6 +33,7 @@ func TestUserName(t *testing.T) {
 }
 
 func TestPRAuthor(t *testing.T) {
+	t.Parallel()
 	if got := PRAuthor(&api.PullRequest{}); got != "" {
 		t.Errorf("PRAuthor(no author) = %q", got)
 	}
@@ -40,7 +44,8 @@ func TestPRAuthor(t *testing.T) {
 }
 
 func TestSameRepoPR(t *testing.T) {
-	repo := testRepo()
+	t.Parallel()
+	repo := cmdtest.TestRepo()
 	cases := []struct {
 		name string
 		src  *api.Repository
@@ -53,6 +58,7 @@ func TestSameRepoPR(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			pr := &api.PullRequest{Source: api.PRRef{Repository: tc.src}}
 			if got := SameRepoPR(pr, repo); got != tc.want {
 				t.Errorf("SameRepoPR = %v, want %v", got, tc.want)
@@ -62,6 +68,7 @@ func TestSameRepoPR(t *testing.T) {
 }
 
 func TestReadBodyFile(t *testing.T) {
+	t.Parallel()
 	ios, in, _, _ := cmdutil.TestIOStreams()
 	in.WriteString("from stdin\n")
 	got, err := ReadBodyFile(ios, "-")

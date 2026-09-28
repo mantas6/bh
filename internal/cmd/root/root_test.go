@@ -6,13 +6,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
 )
 
 func TestRootVersion(t *testing.T) {
+	t.Parallel()
 	for _, args := range [][]string{{"--version"}, {"version"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			t.Parallel()
 			ios, _, out, _ := cmdutil.TestIOStreams()
 			f := &cmdutil.Factory{IOStreams: ios, Version: "1.2.3"}
 
@@ -30,19 +33,23 @@ func TestRootVersion(t *testing.T) {
 }
 
 func TestVersionRejectsArgs(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	cmd := NewCmdRoot(&cmdutil.Factory{IOStreams: ios, Version: "1.2.3"})
-	cmd.SetArgs([]string{"version", "extra"})
+	t.Parallel()
+	f := cmdtest.NewFactory()
+	f.Version = "1.2.3"
+	_, _, err := cmdtest.RunCommand(t, NewCmdRoot(f), "version", "extra")
+	cmdtest.AssertFlagError(t, err, "accepts no arguments")
+}
 
-	var flagErr *cmdutil.FlagError
-	if err := cmd.Execute(); !errors.As(err, &flagErr) {
-		t.Fatalf("Execute() error = %v, want FlagError", err)
-	}
+// Flag parsing errors surface as FlagErrors so the top level prints usage.
+func TestRootWrapsFlagErrors(t *testing.T) {
+	t.Parallel()
+	_, _, err := cmdtest.RunCommand(t, NewCmdRoot(cmdtest.NewFactory()), "pr", "list", "--nope")
+	cmdtest.AssertFlagError(t, err, "unknown flag: --nope")
 }
 
 func TestRepoFlagScopedToPR(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 	cmd := NewCmdRoot(f)
 
 	if cmd.PersistentFlags().Lookup("repo") != nil {
@@ -71,18 +78,16 @@ func TestRepoFlagScopedToPR(t *testing.T) {
 }
 
 func TestRepoFlagFeedsFactory(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
+	t.Parallel()
 	errStop := errors.New("stop")
 	var seen string
-	f := &cmdutil.Factory{IOStreams: ios}
+	f := cmdtest.NewFactory()
 	f.BaseRepo = func(context.Context) (git.Repo, *git.ResolvedRemote, error) {
 		seen = f.RepoOverride
 		return git.Repo{}, nil, errStop
 	}
 
-	cmd := NewCmdRoot(f)
-	cmd.SetArgs([]string{"pr", "list", "-R", "ws/repo"})
-	if err := cmd.Execute(); !errors.Is(err, errStop) {
+	if _, _, err := cmdtest.RunCommand(t, NewCmdRoot(f), "pr", "list", "-R", "ws/repo"); !errors.Is(err, errStop) {
 		t.Fatalf("Execute() error = %v, want %v", err, errStop)
 	}
 	if seen != "ws/repo" {

@@ -1,12 +1,19 @@
 // Package gittest provides a fake git.Runner for use in tests. It records
 // every call's arguments and returns stubbed responses keyed by the exact
 // argv joined with a single space.
+//
+// A Stub is strict: an invocation without a stubbed response fails the test
+// with the offending argv, and every Expect-ed invocation must happen (in the
+// order it was expected) by the time the test finishes.
 package gittest
 
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
+	"sync"
+	"testing"
 
 	"github.com/mantas6/bh/internal/git"
 )
@@ -26,81 +33,149 @@ type Response struct {
 	Err    error
 }
 
-// Stub is a fake git.Runner. Responses maps a joined-argv key (args joined
-// with " ") to the response returned by Run/RunInteractive. Calls records the
-// argv of every invocation in order.
+// Stub is a fake git.Runner. It is safe for concurrent use.
 type Stub struct {
-	// Responses is keyed by strings.Join(args, " ").
-	Responses map[string]Response
-	// Calls records the args of every call, in order.
-	Calls [][]string
-	// Interactive records the args of RunInteractive calls, in order.
-	Interactive [][]string
-	// FailUnstubbed, when true, makes Run return an error for unknown argv
-	// instead of an empty successful response.
-	FailUnstubbed bool
+	t testing.TB
+
+	mu          sync.Mutex
+	responses   map[string]Response
+	expected    []string
+	calls       [][]string
+	interactive [][]string
 }
 
-// New returns an empty Stub ready for use.
-func New() *Stub {
-	return &Stub{Responses: map[string]Response{}}
-}
-
-// Register stubs a response for the given argv.
-func (s *Stub) Register(stdout string, err error, args ...string) *Stub {
-	if s.Responses == nil {
-		s.Responses = map[string]Response{}
-	}
-	s.Responses[strings.Join(args, " ")] = Response{Stdout: stdout, Err: err}
+// New returns a strict Stub bound to t. Unstubbed invocations fail t, and the
+// invocations registered with Expect are verified when t finishes.
+func New(t testing.TB) *Stub {
+	t.Helper()
+	s := &Stub{t: t, responses: map[string]Response{}}
+	t.Cleanup(s.verify)
 	return s
 }
 
-// Expect is an alias for Register that stubs an empty successful response,
-// convenient for asserting a specific argv was invoked.
+// Register stubs a response for the given argv. The invocation is allowed but
+// not required; use Expect or ExpectResponse to require it.
+func (s *Stub) Register(stdout string, err error, args ...string) *Stub {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.responses[strings.Join(args, " ")] = Response{Stdout: stdout, Err: err}
+	return s
+}
+
+// Expect stubs an empty successful response for argv and requires that it is
+// invoked before the test finishes.
 func (s *Stub) Expect(args ...string) *Stub {
-	return s.Register("", nil, args...)
+	return s.ExpectResponse("", nil, args...)
+}
+
+// ExpectResponse stubs a response for argv and requires that it is invoked
+// before the test finishes. Expected invocations must happen in the order
+// they were expected, though other calls may be interleaved.
+func (s *Stub) ExpectResponse(stdout string, err error, args ...string) *Stub {
+	s.Register(stdout, err, args...)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.expected = append(s.expected, strings.Join(args, " "))
+	return s
 }
 
 // Run implements git.Runner. Like git.Client, trailing newlines are trimmed
 // from the stubbed stdout.
 func (s *Stub) Run(_ context.Context, args ...string) (string, error) {
-	s.Calls = append(s.Calls, args)
-	key := strings.Join(args, " ")
-	if resp, ok := lookup(s.Responses, key); ok {
-		return git.TrimOutput(resp.Stdout), resp.Err
+	resp, err := s.record(false, args)
+	if err != nil {
+		return "", err
 	}
-	if s.FailUnstubbed {
-		return "", fmt.Errorf("gittest: no stubbed response for %q", "git "+key)
-	}
-	return "", nil
+	return git.TrimOutput(resp.Stdout), resp.Err
 }
 
 // RunInteractive implements git.Runner.
 func (s *Stub) RunInteractive(_ context.Context, args ...string) error {
-	s.Calls = append(s.Calls, args)
-	s.Interactive = append(s.Interactive, args)
-	key := strings.Join(args, " ")
-	if resp, ok := lookup(s.Responses, key); ok {
-		return resp.Err
+	resp, err := s.record(true, args)
+	if err != nil {
+		return err
 	}
-	if s.FailUnstubbed {
-		return fmt.Errorf("gittest: no stubbed response for %q", "git "+key)
-	}
-	return nil
+	return resp.Err
 }
 
-func lookup(m map[string]Response, key string) (Response, bool) {
-	if m == nil {
-		return Response{}, false
+func (s *Stub) record(interactive bool, args []string) (Response, error) {
+	args = slices.Clone(args)
+	key := strings.Join(args, " ")
+
+	s.mu.Lock()
+	s.calls = append(s.calls, args)
+	if interactive {
+		s.interactive = append(s.interactive, args)
 	}
-	resp, ok := m[key]
-	return resp, ok
+	resp, ok := s.responses[key]
+	s.mu.Unlock()
+
+	if !ok {
+		s.t.Errorf("gittest: unexpected call: git %s", key)
+		return Response{}, fmt.Errorf("gittest: no stubbed response for %q", "git "+key)
+	}
+	return resp, nil
+}
+
+// verify reports expected invocations that did not happen in order.
+func (s *Stub) verify() {
+	calls := s.CallStrings()
+	i := 0
+	for _, want := range s.expectedCalls() {
+		j := slices.Index(calls[i:], want)
+		if j < 0 {
+			s.t.Errorf("gittest: expected call did not happen (in order): git %s\nactual calls:\n  %s",
+				want, strings.Join(calls, "\n  "))
+			return
+		}
+		i += j + 1
+	}
+}
+
+func (s *Stub) expectedCalls() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.expected)
+}
+
+// Calls returns a copy of the argv of every invocation (Run and
+// RunInteractive), in order.
+func (s *Stub) Calls() [][]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return cloneAll(s.calls)
+}
+
+// Interactive returns a copy of the argv of every RunInteractive invocation,
+// in order.
+func (s *Stub) Interactive() [][]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return cloneAll(s.interactive)
 }
 
 // CallStrings returns each recorded call joined with a single space, in order.
 func (s *Stub) CallStrings() []string {
-	out := make([]string, len(s.Calls))
-	for i, c := range s.Calls {
+	return joinAll(s.Calls())
+}
+
+// InteractiveStrings returns each recorded RunInteractive call joined with a
+// single space, in order.
+func (s *Stub) InteractiveStrings() []string {
+	return joinAll(s.Interactive())
+}
+
+func cloneAll(in [][]string) [][]string {
+	out := make([][]string, len(in))
+	for i, c := range in {
+		out[i] = slices.Clone(c)
+	}
+	return out
+}
+
+func joinAll(in [][]string) []string {
+	out := make([]string, len(in))
+	for i, c := range in {
 		out[i] = strings.Join(c, " ")
 	}
 	return out

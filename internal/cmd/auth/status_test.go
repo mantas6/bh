@@ -8,16 +8,18 @@ import (
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
+	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/config"
 )
 
-func TestStatusNotLoggedIn(t *testing.T) {
-	t.Setenv("BH_CONFIG_DIR", t.TempDir())
-	t.Setenv("BH_TOKEN", "")
+// envToken is the environment of a user who exported BH_TOKEN.
+var envToken = map[string]string{config.EnvToken: "env-token"}
 
+func TestStatusNotLoggedIn(t *testing.T) {
+	t.Parallel()
 	ios, _, _, _ := cmdutil.TestIOStreams()
-	opts := &StatusOptions{IO: ios, Config: config.Load}
+	opts := &StatusOptions{IO: ios, Config: cmdtest.NewConfig(nil).Load}
 
 	err := statusRun(t.Context(), opts)
 	if err == nil {
@@ -29,18 +31,15 @@ func TestStatusNotLoggedIn(t *testing.T) {
 }
 
 func TestStatusLoggedInViaBHToken(t *testing.T) {
-	t.Setenv("BH_CONFIG_DIR", t.TempDir())
-	t.Setenv("BH_TOKEN", "env-token")
-	t.Setenv("BH_EMAIL", "")
-
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/user", 200, api.User{DisplayName: "Ada"})
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := &StatusOptions{
 		IO:           ios,
-		Config:       config.Load,
-		APIClientFor: clientForServer(srv),
+		Config:       cmdtest.NewConfig(envToken).Load,
+		APIClientFor: cmdtest.ClientForFunc(srv),
 	}
 
 	if err := statusRun(t.Context(), opts); err != nil {
@@ -60,6 +59,7 @@ func TestStatusLoggedInViaBHToken(t *testing.T) {
 }
 
 func TestStatusBHTokenEmail(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		envEmail   string
@@ -71,17 +71,9 @@ func TestStatusBHTokenEmail(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("BH_CONFIG_DIR", t.TempDir())
-			t.Setenv("BH_TOKEN", "")
-
-			cfg, _ := config.Load()
-			cfg.SetHost(config.DefaultHost, &config.HostConfig{Token: "stored-tok", Email: "stored@example.com"})
-			if err := cfg.Save(); err != nil {
-				t.Fatalf("save: %v", err)
-			}
-
-			t.Setenv("BH_TOKEN", "env-token")
-			t.Setenv("BH_EMAIL", tt.envEmail)
+			t.Parallel()
+			cfg := cmdtest.NewConfig(map[string]string{config.EnvToken: "env-token", config.EnvEmail: tt.envEmail}).
+				SetHost(config.DefaultHost, config.HostConfig{Token: "stored-tok", Email: "stored@example.com"})
 
 			srv := apitest.New(t)
 			srv.Handle("GET", "/user", 200, api.User{DisplayName: "Ada"})
@@ -90,10 +82,10 @@ func TestStatusBHTokenEmail(t *testing.T) {
 			ios, _, out, _ := cmdutil.TestIOStreams()
 			opts := &StatusOptions{
 				IO:     ios,
-				Config: config.Load,
+				Config: cfg.Load,
 				APIClientFor: func(token, email string) *api.Client {
 					gotToken, gotEmail = token, email
-					return clientForServer(srv)(token, email)
+					return cmdtest.ClientForFunc(srv)(token, email)
 				},
 			}
 
@@ -122,14 +114,9 @@ func TestStatusBHTokenEmail(t *testing.T) {
 }
 
 func TestStatusShowToken(t *testing.T) {
-	t.Setenv("BH_CONFIG_DIR", t.TempDir())
-	t.Setenv("BH_TOKEN", "")
-
-	cfg, _ := config.Load()
-	cfg.SetHost(config.DefaultHost, &config.HostConfig{Token: "stored-tok", Email: "ada@example.com", User: "Ada"})
-	if err := cfg.Save(); err != nil {
-		t.Fatalf("save: %v", err)
-	}
+	t.Parallel()
+	cfg := cmdtest.NewConfig(nil).
+		SetHost(config.DefaultHost, config.HostConfig{Token: "stored-tok", Email: "ada@example.com", User: "Ada"})
 
 	srv := apitest.New(t)
 	srv.Handle("GET", "/user", 200, api.User{DisplayName: "Ada"})
@@ -137,8 +124,8 @@ func TestStatusShowToken(t *testing.T) {
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := &StatusOptions{
 		IO:           ios,
-		Config:       config.Load,
-		APIClientFor: clientForServer(srv),
+		Config:       cfg.Load,
+		APIClientFor: cmdtest.ClientForFunc(srv),
 		ShowToken:    true,
 	}
 
@@ -159,17 +146,15 @@ func TestStatusShowToken(t *testing.T) {
 }
 
 func TestStatusInvalidToken(t *testing.T) {
-	t.Setenv("BH_CONFIG_DIR", t.TempDir())
-	t.Setenv("BH_TOKEN", "env-token")
-
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/user", 401, `{"error":{"message":"token expired"}}`)
 
 	ios, _, out, errOut := cmdutil.TestIOStreams()
 	opts := &StatusOptions{
 		IO:           ios,
-		Config:       config.Load,
-		APIClientFor: clientForServer(srv),
+		Config:       cmdtest.NewConfig(envToken).Load,
+		APIClientFor: cmdtest.ClientForFunc(srv),
 	}
 
 	err := statusRun(t.Context(), opts)
@@ -185,19 +170,18 @@ func TestStatusInvalidToken(t *testing.T) {
 }
 
 func TestStatusNonAuthErrorIsNotInvalidToken(t *testing.T) {
+	t.Parallel()
 	for _, status := range []int{403, 500} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
-			t.Setenv("BH_CONFIG_DIR", t.TempDir())
-			t.Setenv("BH_TOKEN", "env-token")
-
+			t.Parallel()
 			srv := apitest.New(t)
 			srv.Handle("GET", "/user", status, `{"error":{"message":"boom"}}`)
 
 			ios, _, out, errOut := cmdutil.TestIOStreams()
 			opts := &StatusOptions{
 				IO:           ios,
-				Config:       config.Load,
-				APIClientFor: clientForServer(srv),
+				Config:       cmdtest.NewConfig(envToken).Load,
+				APIClientFor: cmdtest.ClientForFunc(srv),
 			}
 
 			err := statusRun(t.Context(), opts)
@@ -211,5 +195,20 @@ func TestStatusNonAuthErrorIsNotInvalidToken(t *testing.T) {
 				t.Errorf("should not claim the token is invalid: out=%q err=%q", out.String(), errOut.String())
 			}
 		})
+	}
+}
+
+func TestStatusFlagParsing(t *testing.T) {
+	t.Parallel()
+	var captured *StatusOptions
+	cmd := NewCmdStatus(cmdtest.NewFactory(), func(o *StatusOptions) error {
+		captured = o
+		return nil
+	})
+	if _, _, err := cmdtest.RunCommand(t, cmd, "--show-token"); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if captured == nil || !captured.ShowToken {
+		t.Errorf("parsed = %+v", captured)
 	}
 }

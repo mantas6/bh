@@ -112,6 +112,7 @@ func TestTokenResolution(t *testing.T) {
 }
 
 func TestTokenSourceString(t *testing.T) {
+	t.Parallel()
 	tests := map[TokenSource]string{
 		TokenSourceNone: "none",
 		TokenSourceEnv:  "BH_TOKEN",
@@ -401,10 +402,44 @@ func TestEmail(t *testing.T) {
 }
 
 func TestRemoveHost(t *testing.T) {
+	t.Parallel()
 	c := &Config{Hosts: map[string]*HostConfig{}}
 	c.SetHost(DefaultHost, &HostConfig{Token: "t"})
 	c.RemoveHost(DefaultHost)
 	if c.Host(DefaultHost) != nil {
 		t.Fatal("Host still present after RemoveHost")
+	}
+}
+
+func TestNewInMemory(t *testing.T) {
+	t.Parallel()
+	env := map[string]string{EnvToken: "env-tok", EnvEmail: "env@example.com"}
+	var saved []string
+	c := NewInMemory(func(k string) string { return env[k] }, func(c *Config) error {
+		saved = append(saved, c.Host(DefaultHost).Token)
+		return nil
+	})
+	c.SetHost(DefaultHost, &HostConfig{Token: "stored", Email: "stored@example.com"})
+
+	if tok, src := c.Token(DefaultHost); tok != "env-tok" || src != TokenSourceEnv {
+		t.Errorf("Token() = %q, %v; want the injected BH_TOKEN", tok, src)
+	}
+	if got := c.Email(DefaultHost); got != "env@example.com" {
+		t.Errorf("Email() = %q, want the injected BH_EMAIL", got)
+	}
+	if err := c.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if len(saved) != 1 || saved[0] != "stored" {
+		t.Errorf("save calls = %v", saved)
+	}
+
+	blank := NewInMemory(nil, nil)
+	blank.SetHost(DefaultHost, &HostConfig{Token: "stored"})
+	if tok, src := blank.Token(DefaultHost); tok != "stored" || src != TokenSourceFile {
+		t.Errorf("Token() = %q, %v; nil getenv should read as unset", tok, src)
+	}
+	if err := blank.Save(); err != nil {
+		t.Errorf("Save with nil save func: %v", err)
 	}
 }

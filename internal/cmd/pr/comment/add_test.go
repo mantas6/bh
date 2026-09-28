@@ -1,13 +1,12 @@
 package comment
 
 import (
-	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
+	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/cmdutil"
 )
 
@@ -24,12 +23,12 @@ func handleCreate(srv *apitest.Server) {
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests/123/comments", 201, createdComment())
 }
 
-func newAddOpts(srv *apitest.Server, ios *cmdutil.IOStreams) *AddOptions {
+func newAddOpts(t *testing.T, srv *apitest.Server, ios *cmdutil.IOStreams) *AddOptions {
 	return &AddOptions{
 		IO:        ios,
-		APIClient: clientFunc(srv),
-		Git:       gitFunc(newGitStub()),
-		BaseRepo:  baseRepoFunc(),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(newGitStub(t)),
+		BaseRepo:  cmdtest.BaseRepoFunc(nil),
 		Arg:       "123",
 		Side:      "new",
 	}
@@ -37,23 +36,18 @@ func newAddOpts(srv *apitest.Server, ios *cmdutil.IOStreams) *AddOptions {
 
 func createBody(t *testing.T, srv *apitest.Server) map[string]any {
 	t.Helper()
-	req := findRequest(srv, "POST", "/pullrequests/123/comments")
-	if req == nil {
-		t.Fatal("no POST recorded")
-	}
 	var body map[string]any
-	if err := json.Unmarshal(req.Body, &body); err != nil {
-		t.Fatalf("body: %v", err)
-	}
+	cmdtest.RequireRequest(t, srv, "POST", "/pullrequests/123/comments").DecodeJSON(t, &body)
 	return body
 }
 
 func TestAddPlainBody(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	handleCreate(srv)
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	opts := newAddOpts(srv, ios)
+	opts := newAddOpts(t, srv, ios)
 	opts.Body = "Nice work"
 	if err := addRun(t.Context(), opts); err != nil {
 		t.Fatalf("addRun: %v", err)
@@ -73,11 +67,12 @@ func TestAddPlainBody(t *testing.T) {
 }
 
 func TestAddInlineNewSide(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	handleCreate(srv)
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
-	opts := newAddOpts(srv, ios)
+	opts := newAddOpts(t, srv, ios)
 	opts.Body = "inline"
 	opts.Path = "main.go"
 	opts.Line = 12
@@ -100,11 +95,12 @@ func TestAddInlineNewSide(t *testing.T) {
 }
 
 func TestAddInlineOldSide(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	handleCreate(srv)
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
-	opts := newAddOpts(srv, ios)
+	opts := newAddOpts(t, srv, ios)
 	opts.Body = "inline old"
 	opts.Path = "main.go"
 	opts.Line = 7
@@ -124,13 +120,14 @@ func TestAddInlineOldSide(t *testing.T) {
 }
 
 func TestAddBodyFromStdin(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	handleCreate(srv)
 
 	ios, in, _, _ := cmdutil.TestIOStreams()
 	in.WriteString("from stdin\n")
 	// stdin is not a TTY (default false), so the body is read from it.
-	opts := newAddOpts(srv, ios)
+	opts := newAddOpts(t, srv, ios)
 	if err := addRun(t.Context(), opts); err != nil {
 		t.Fatalf("addRun: %v", err)
 	}
@@ -141,85 +138,61 @@ func TestAddBodyFromStdin(t *testing.T) {
 }
 
 func TestAddMissingBody(t *testing.T) {
+	t.Parallel()
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	ios.SetStdinTTY(true) // no stdin body available
 	opts := &AddOptions{
 		IO:       ios,
-		BaseRepo: baseRepoFunc(),
+		BaseRepo: cmdtest.BaseRepoFunc(nil),
 		Arg:      "123",
 		Side:     "new",
 	}
 	err := addRun(t.Context(), opts)
-	var fe *cmdutil.FlagError
-	if !errors.As(err, &fe) || !strings.Contains(err.Error(), "comment body is required") {
-		t.Fatalf("err = %v, want body FlagError", err)
-	}
+	cmdtest.AssertFlagError(t, err, "comment body is required")
 }
 
 func TestAddInvalidLineFlagError(t *testing.T) {
+	t.Parallel()
 	for _, line := range []string{"0", "-3"} {
 		t.Run(line, func(t *testing.T) {
-			ios, _, _, _ := cmdutil.TestIOStreams()
-			f := &cmdutil.Factory{IOStreams: ios}
+			t.Parallel()
+			f := cmdtest.NewFactory()
 			cmd := NewCmdAdd(f, func(*AddOptions) error {
 				t.Error("runF should not be called")
 				return nil
 			})
-			cmd.SetArgs([]string{"123", "-b", "x", "--path", "main.go", "--line", line})
-			cmd.SetOut(ios.Out)
-			cmd.SetErr(ios.ErrOut)
-			err := cmd.Execute()
-			var fe *cmdutil.FlagError
-			if !errors.As(err, &fe) || !strings.Contains(err.Error(), "invalid value for --line") {
-				t.Fatalf("err = %v", err)
-			}
+			_, _, err := cmdtest.RunCommand(t, cmd, "123", "-b", "x", "--path", "main.go", "--line", line)
+			cmdtest.AssertFlagError(t, err, "invalid value for --line")
 		})
 	}
 }
 
 func TestAddLineWithoutPathFlagError(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 	cmd := NewCmdAdd(f, func(*AddOptions) error { return nil })
-	cmd.SetArgs([]string{"123", "-b", "x", "--line", "5"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	err := cmd.Execute()
-	var fe *cmdutil.FlagError
-	if err == nil || !strings.Contains(err.Error(), "--line requires --path") {
-		t.Fatalf("err = %v", err)
-	}
-	if !errors.As(err, &fe) {
-		t.Fatalf("expected FlagError, got %T", err)
-	}
+	_, _, err := cmdtest.RunCommand(t, cmd, "123", "-b", "x", "--line", "5")
+	cmdtest.AssertFlagError(t, err, "--line requires --path")
 }
 
 func TestAddSideInvalidFlagError(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 	cmd := NewCmdAdd(f, func(*AddOptions) error { return nil })
-	cmd.SetArgs([]string{"123", "-b", "x", "--path", "a.go", "--line", "1", "--side", "middle"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	var fe *cmdutil.FlagError
-	if err := cmd.Execute(); err == nil || !errors.As(err, &fe) {
-		t.Fatalf("expected FlagError, got %v", err)
-	}
+	_, _, err := cmdtest.RunCommand(t, cmd, "123", "-b", "x", "--path", "a.go", "--line", "1", "--side", "middle")
+	cmdtest.AssertFlagError(t, err, "")
 }
 
 func TestAddFlagParsing(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 
 	var captured *AddOptions
 	cmd := NewCmdAdd(f, func(o *AddOptions) error {
 		captured = o
 		return nil
 	})
-	cmd.SetArgs([]string{"77", "-b", "hi", "--path", "f.go", "--line", "3", "--side", "old"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	if err := cmd.Execute(); err != nil {
+	if _, _, err := cmdtest.RunCommand(t, cmd, "77", "-b", "hi", "--path", "f.go", "--line", "3", "--side", "old"); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if captured.Arg != "77" || captured.Body != "hi" || captured.Path != "f.go" ||

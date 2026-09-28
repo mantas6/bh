@@ -7,6 +7,7 @@ import (
 )
 
 func TestPrompterPipedMultiplePrompts(t *testing.T) {
+	t.Parallel()
 	ios, in, _, errOut := TestIOStreams()
 	// All answers arrive at once, as with `printf ... | bh ...`.
 	in.WriteString("My title\r\n\nn\n  yes  \n")
@@ -35,6 +36,7 @@ func TestPrompterPipedMultiplePrompts(t *testing.T) {
 }
 
 func TestPrompterConfirm(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		in   string
 		def  bool
@@ -63,6 +65,7 @@ func TestPrompterConfirm(t *testing.T) {
 }
 
 func TestPrompterInputEOF(t *testing.T) {
+	t.Parallel()
 	p := NewPrompter(strings.NewReader("no-newline"), &strings.Builder{})
 	got, err := p.Input("Name", "")
 	if err != nil || got != "no-newline" {
@@ -79,6 +82,7 @@ type errReader struct{}
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("boom") }
 
 func TestPrompterReadError(t *testing.T) {
+	t.Parallel()
 	p := NewPrompter(errReader{}, &strings.Builder{})
 	if _, err := p.Confirm("Continue?", true); err == nil {
 		t.Error("expected read error")

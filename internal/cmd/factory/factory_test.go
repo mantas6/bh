@@ -8,11 +8,13 @@ import (
 	"testing"
 
 	"github.com/mantas6/bh/internal/api"
+	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/config"
 	"github.com/mantas6/bh/internal/git"
 )
 
 func TestRepoOverride(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		flag string
@@ -28,6 +30,7 @@ func TestRepoOverride(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			getenv := func(key string) string {
 				if key != "BH_REPO" {
 					t.Errorf("unexpected env lookup %q", key)
@@ -107,7 +110,7 @@ func TestBaseRepoOutsideCheckout(t *testing.T) {
 }
 
 func TestConfigIsCached(t *testing.T) {
-	t.Setenv("BH_CONFIG_DIR", t.TempDir())
+	cmdtest.TempConfigDir(t)
 
 	f := New("test")
 	a, err := f.Config()
@@ -124,10 +127,9 @@ func TestConfigIsCached(t *testing.T) {
 }
 
 func TestAPIClientUsesFactoryConfig(t *testing.T) {
-	t.Setenv("BH_TOKEN", "")
 	// Point the on-disk config somewhere empty: the client must come from
 	// f.Config, not from a fresh config.Load.
-	t.Setenv("BH_CONFIG_DIR", t.TempDir())
+	cmdtest.TempConfigDir(t)
 
 	f := New("1.2.3")
 	calls := 0
@@ -177,8 +179,7 @@ func TestAPIClientEnvTokenUsesEnvEmail(t *testing.T) {
 }
 
 func TestAPIClientNoToken(t *testing.T) {
-	t.Setenv("BH_TOKEN", "")
-	t.Setenv("BH_CONFIG_DIR", t.TempDir())
+	cmdtest.TempConfigDir(t)
 
 	f := New("test")
 	if _, err := f.APIClient(); !errors.Is(err, api.ErrNoToken) {
@@ -187,6 +188,7 @@ func TestAPIClientNoToken(t *testing.T) {
 }
 
 func TestAPIClientFor(t *testing.T) {
+	t.Parallel()
 	f := New("1.2.3")
 	c := f.APIClientFor("tok", "")
 	if c.Token != "tok" || c.Email != "" {
@@ -198,6 +200,7 @@ func TestAPIClientFor(t *testing.T) {
 }
 
 func TestNewIOStreams(t *testing.T) {
+	t.Parallel()
 	f := New("test")
 	ios := f.IOStreams
 	if ios.In != os.Stdin || ios.Out != os.Stdout || ios.ErrOut != os.Stderr {

@@ -48,6 +48,7 @@ func TestColorEnabledEnv(t *testing.T) {
 }
 
 func TestColorSchemesFollowTheirStream(t *testing.T) {
+	t.Parallel()
 	ios, _, _, _ := TestIOStreams()
 	ios.SetStdoutTTY(true)
 	ios.SetStderrTTY(false)
@@ -102,5 +103,71 @@ func TestStdinSharedWithPrompter(t *testing.T) {
 	}
 	if ios.Prompter() != ios.Prompter() {
 		t.Error("Prompter() should return a shared instance")
+	}
+}
+
+func TestTTYFlags(t *testing.T) {
+	t.Parallel()
+	ios, _, _, _ := TestIOStreams()
+	if ios.IsStdinTTY() || ios.IsStdoutTTY() || ios.IsStderrTTY() {
+		t.Fatal("TestIOStreams should default to non-TTY streams")
+	}
+	ios.SetStdinTTY(true)
+	ios.SetStdoutTTY(true)
+	ios.SetStderrTTY(true)
+	if !ios.IsStdinTTY() || !ios.IsStdoutTTY() || !ios.IsStderrTTY() {
+		t.Error("SetXxxTTY(true) not reflected by IsXxxTTY")
+	}
+}
+
+// A nil Getenv falls back to the process environment.
+func TestColorEnabledProcessEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+		tty  bool
+		want bool
+	}{
+		{"NO_COLOR", map[string]string{"NO_COLOR": "1"}, true, false},
+		{"CLICOLOR_FORCE", map[string]string{"CLICOLOR_FORCE": "1"}, false, true},
+		{"TERM=dumb", map[string]string{"TERM": "dumb"}, true, false},
+		{"plain tty", nil, true, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, k := range []string{"NO_COLOR", "CLICOLOR", "CLICOLOR_FORCE", "TERM"} {
+				t.Setenv(k, tt.env[k])
+			}
+			ios := &IOStreams{Out: io.Discard, ErrOut: io.Discard}
+			ios.SetStdoutTTY(tt.tty)
+			if got := ios.ColorEnabled(); got != tt.want {
+				t.Errorf("ColorEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+type fdReader struct{ io.Reader }
+
+func (fdReader) Fd() uintptr { return 42 }
+
+func TestStdinFdFromFile(t *testing.T) {
+	t.Parallel()
+	ios := &IOStreams{In: fdReader{strings.NewReader("")}}
+	if fd, ok := ios.StdinFd(); !ok || fd != 42 {
+		t.Errorf("StdinFd() = %d, %v; want 42, true", fd, ok)
+	}
+}
+
+// A zero IOStreams with no In reads as empty standard input.
+func TestStdinNilReader(t *testing.T) {
+	t.Parallel()
+	ios := &IOStreams{ErrOut: io.Discard}
+	data, err := io.ReadAll(ios.Stdin())
+	if err != nil || len(data) != 0 {
+		t.Errorf("ReadAll(Stdin()) = %q, %v; want empty", data, err)
+	}
+	if got, err := ios.Prompter().Input("Name", "def"); err != nil || got != "def" {
+		t.Errorf("Input = %q, %v; want the default at EOF", got, err)
 	}
 }

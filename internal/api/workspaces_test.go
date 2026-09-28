@@ -31,6 +31,7 @@ func membersServer(t *testing.T) *apitest.Server {
 }
 
 func TestFindMembers(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		queries []string
@@ -94,6 +95,7 @@ func TestFindMembers(t *testing.T) {
 }
 
 func TestFindMembersNoQueriesSkipsRequest(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t) // no routes
 	got, err := srv.APIClient().FindMembers(t.Context(), "ws", []string{"", "  "})
 	if err != nil || len(got) != 0 {

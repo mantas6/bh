@@ -1,31 +1,29 @@
 package pr
 
 import (
-	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
+	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git/gittest"
 )
 
 func TestEditChangedKeysAndReviewers(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
-	srv.Handle("GET", "/workspaces/myws/members", 200, valuesPage([]api.WorkspaceMember{
-		{User: api.User{UUID: "{cara-uuid}", Nickname: "cara", DisplayName: "Cara"}},
-	}))
-	srv.Handle("PUT", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
+	srv.Handle("GET", "/workspaces/myws/members", 200, cmdtest.Members("cara"))
+	srv.Handle("PUT", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := &EditOptions{
 		IO:              ios,
-		APIClient:       func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:             gitFunc(gittest.New()),
-		BaseRepo:        baseRepoFunc(nil),
+		APIClient:       cmdtest.ClientFunc(srv),
+		Git:             cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:        cmdtest.BaseRepoFunc(nil),
 		Arg:             "123",
 		Title:           "New title",
 		titleSet:        true,
@@ -41,14 +39,8 @@ func TestEditChangedKeysAndReviewers(t *testing.T) {
 		t.Errorf("URL not printed: %q", out.String())
 	}
 
-	req := findRequest(srv, "PUT", "/pullrequests/123")
-	if req == nil {
-		t.Fatal("no PUT recorded")
-	}
 	var body map[string]any
-	if err := json.Unmarshal(req.Body, &body); err != nil {
-		t.Fatalf("body: %v", err)
-	}
+	cmdtest.RequireRequest(t, srv, "PUT", "/pullrequests/123").DecodeJSON(t, &body)
 	if body["title"] != "New title" {
 		t.Errorf("title = %v", body["title"])
 	}
@@ -69,16 +61,17 @@ func TestEditChangedKeysAndReviewers(t *testing.T) {
 }
 
 func TestEditDraftReady(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
-	srv.Handle("PUT", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
+	srv.Handle("PUT", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &EditOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(gittest.New()),
-		BaseRepo:  baseRepoFunc(nil),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:  cmdtest.BaseRepoFunc(nil),
 		Arg:       "123",
 		Ready:     true,
 	}
@@ -86,29 +79,26 @@ func TestEditDraftReady(t *testing.T) {
 	if err := editRun(t.Context(), opts); err != nil {
 		t.Fatalf("editRun: %v", err)
 	}
-	req := findRequest(srv, "PUT", "/pullrequests/123")
 	var body map[string]any
-	json.Unmarshal(req.Body, &body)
+	cmdtest.RequireRequest(t, srv, "PUT", "/pullrequests/123").DecodeJSON(t, &body)
 	if body["draft"] != false {
 		t.Errorf("draft = %v, want false", body["draft"])
 	}
 }
 
 func TestEditReviewersResolvedWithOneListing(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
-	srv.Handle("GET", "/workspaces/myws/members", 200, valuesPage([]api.WorkspaceMember{
-		{User: api.User{UUID: "{cara-uuid}", Nickname: "cara"}},
-		{User: api.User{UUID: "{dan-uuid}", Nickname: "dan"}},
-	}))
-	srv.Handle("PUT", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
+	srv.Handle("GET", "/workspaces/myws/members", 200, cmdtest.Members("cara", "dan"))
+	srv.Handle("PUT", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &EditOptions{
 		IO:           ios,
-		APIClient:    func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:          gitFunc(gittest.New()),
-		BaseRepo:     baseRepoFunc(nil),
+		APIClient:    cmdtest.ClientFunc(srv),
+		Git:          cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:     cmdtest.BaseRepoFunc(nil),
 		Arg:          "123",
 		AddReviewers: []string{"cara", "dan", "bob-uuid"},
 	}
@@ -143,16 +133,17 @@ func TestEditReviewersResolvedWithOneListing(t *testing.T) {
 }
 
 func TestEditRemoveAllReviewersSendsEmptyList(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
-	srv.Handle("PUT", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
+	srv.Handle("PUT", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &EditOptions{
 		IO:              ios,
-		APIClient:       func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:             gitFunc(gittest.New()),
-		BaseRepo:        baseRepoFunc(nil),
+		APIClient:       cmdtest.ClientFunc(srv),
+		Git:             cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:        cmdtest.BaseRepoFunc(nil),
 		Arg:             "123",
 		RemoveReviewers: []string{"bob"},
 	}
@@ -165,10 +156,11 @@ func TestEditRemoveAllReviewersSendsEmptyList(t *testing.T) {
 }
 
 func TestEditNoFlags(t *testing.T) {
+	t.Parallel()
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &EditOptions{
 		IO:       ios,
-		BaseRepo: baseRepoFunc(nil),
+		BaseRepo: cmdtest.BaseRepoFunc(nil),
 		Arg:      "123",
 	}
 	err := editRun(t.Context(), opts)
@@ -178,32 +170,23 @@ func TestEditNoFlags(t *testing.T) {
 }
 
 func TestEditDraftReadyConflict(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 	cmd := NewCmdEdit(f, func(o *EditOptions) error { return nil })
-	cmd.SetArgs([]string{"123", "--draft", "--ready"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	err := cmd.Execute()
-	var fe *cmdutil.FlagError
-	if err == nil || !errors.As(err, &fe) {
-		t.Fatalf("expected FlagError, got %v", err)
-	}
+	_, _, err := cmdtest.RunCommand(t, cmd, "123", "--draft", "--ready")
+	cmdtest.AssertFlagError(t, err, "")
 }
 
 func TestEditFlagParsing(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 
 	var captured *EditOptions
 	cmd := NewCmdEdit(f, func(o *EditOptions) error {
 		captured = o
 		return nil
 	})
-	cmd.SetArgs([]string{"123", "-t", "T", "-B", "develop", "--add-reviewer", "a,b", "--remove-reviewer", "c"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	if err := cmd.Execute(); err != nil {
+	if _, _, err := cmdtest.RunCommand(t, cmd, "123", "-t", "T", "-B", "develop", "--add-reviewer", "a,b", "--remove-reviewer", "c"); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if captured.Arg != "123" || captured.Title != "T" || captured.Base != "develop" {

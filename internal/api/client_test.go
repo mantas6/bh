@@ -18,6 +18,7 @@ import (
 )
 
 func TestNewClientDefaults(t *testing.T) {
+	t.Parallel()
 	c := api.NewClient("", "tok", "")
 	if c.BaseURL != api.DefaultBaseURL {
 		t.Errorf("BaseURL = %q, want default", c.BaseURL)
@@ -31,6 +32,7 @@ func TestNewClientDefaults(t *testing.T) {
 // defaults lazily: the request goes out with the default User-Agent and no
 // Authorization header.
 func TestZeroClientUsable(t *testing.T) {
+	t.Parallel()
 	var c api.Client
 	var got *http.Request
 	c.HTTP = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -61,6 +63,7 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestAuthAndUserAgentHeaders(t *testing.T) {
+	t.Parallel()
 	basic := "Basic " + base64.StdEncoding.EncodeToString([]byte("me@example.com:tok"))
 	tests := []struct {
 		name      string
@@ -105,6 +108,7 @@ func TestAuthAndUserAgentHeaders(t *testing.T) {
 // TestNoAuthToForeignHost ensures credentials are not leaked when a `next`
 // link points at a different host than BaseURL.
 func TestNoAuthToForeignHost(t *testing.T) {
+	t.Parallel()
 	foreign := apitest.New(t)
 	foreign.Handle(http.MethodGet, "/page2", 200, `{"values":[{"id":2}]}`)
 
@@ -129,6 +133,7 @@ func TestNoAuthToForeignHost(t *testing.T) {
 }
 
 func TestDoRelativeAndAbsolute(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodGet, "/user", 200, map[string]any{"display_name": "Rel"})
 	c := srv.APIClient()
@@ -146,6 +151,7 @@ func TestDoRelativeAndAbsolute(t *testing.T) {
 }
 
 func TestDoReturnsStatusAndHeader(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.HandleFunc(http.MethodPost, "/thing", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Test", "yes")
@@ -170,6 +176,7 @@ func TestDoReturnsStatusAndHeader(t *testing.T) {
 }
 
 func TestDoNoContent(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/1/approve", 204, nil)
 	c := srv.APIClient()
@@ -179,6 +186,7 @@ func TestDoNoContent(t *testing.T) {
 }
 
 func TestErrorMapping(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodGet, "/user", 401,
 		`{"error":{"message":"Access token expired."}}`)
@@ -203,6 +211,7 @@ func TestErrorMapping(t *testing.T) {
 }
 
 func TestStatusPredicates(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		status                            int
 		notFound, unauthorized, forbidden bool
@@ -230,6 +239,7 @@ func TestStatusPredicates(t *testing.T) {
 }
 
 func TestHTTPErrorMessage(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		err  api.HTTPError
@@ -263,6 +273,7 @@ func TestHTTPErrorMessage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := tt.err.Error(); got != tt.want {
 				t.Errorf("Error() = %q, want %q", got, tt.want)
 			}
@@ -271,6 +282,7 @@ func TestHTTPErrorMessage(t *testing.T) {
 }
 
 func TestErrorBodyDetailAndFields(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests", 400,
 		`{"error":{"message":"Bad request","detail":"nope","fields":{"source":["branch not found"]}}}`)
@@ -285,6 +297,7 @@ func TestErrorBodyDetailAndFields(t *testing.T) {
 }
 
 func TestNonJSONErrorBody(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.HandleFunc(http.MethodPost, "/user", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -306,6 +319,7 @@ func TestNonJSONErrorBody(t *testing.T) {
 }
 
 func TestErrorNotFound(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodGet, "/repositories/ws/repo", 404,
 		`{"error":{"message":"No such repo"}}`)
@@ -323,6 +337,7 @@ func TestErrorNotFound(t *testing.T) {
 }
 
 func TestPathSegmentsEscaped(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	var paths []string
 	srv.HandleFunc("", "/", func(w http.ResponseWriter, r *http.Request) {
@@ -378,6 +393,7 @@ func recordSleeps(delays *[]time.Duration) func(context.Context, time.Duration) 
 }
 
 func TestRetry(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		method     string
@@ -423,6 +439,7 @@ func TestRetry(t *testing.T) {
 }
 
 func TestRetryResendsBody(t *testing.T) {
+	t.Parallel()
 	srv, _ := retryServer(t, http.MethodPut, 503, 1, "")
 	if _, _, err := srv.APIClient().Do(t.Context(), http.MethodPut, "/flaky", nil, map[string]int{"n": 1}, nil); err != nil {
 		t.Fatal(err)
@@ -435,6 +452,7 @@ func TestRetryResendsBody(t *testing.T) {
 }
 
 func TestRetryAfterHTTPDate(t *testing.T) {
+	t.Parallel()
 	srv, calls := retryServer(t, http.MethodGet, 503, 1, time.Now().Add(5*time.Second).UTC().Format(http.TimeFormat))
 	c := srv.APIClient()
 	var delays []time.Duration
@@ -452,6 +470,7 @@ func TestRetryAfterHTTPDate(t *testing.T) {
 }
 
 func TestRetryCancelledDuringBackoff(t *testing.T) {
+	t.Parallel()
 	srv, calls := retryServer(t, http.MethodGet, 503, 10, "")
 	c := srv.APIClient()
 	ctx, cancel := context.WithCancel(t.Context())
@@ -473,6 +492,7 @@ func TestRetryCancelledDuringBackoff(t *testing.T) {
 // TestDefaultSleepHonoursContext exercises the real timer-based sleep: an
 // already-cancelled context must abort the backoff immediately.
 func TestDefaultSleepHonoursContext(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	hs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -497,6 +517,7 @@ func TestDefaultSleepHonoursContext(t *testing.T) {
 }
 
 func TestPaginateThreePages(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	base := srv.URL + "/repositories/ws/repo/pullrequests"
 	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/pullrequests", func(w http.ResponseWriter, r *http.Request) {
@@ -535,6 +556,7 @@ func TestPaginateThreePages(t *testing.T) {
 }
 
 func TestPaginateLimitStopsFetching(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	base := srv.URL + "/repositories/ws/repo/pullrequests"
 	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/pullrequests", func(w http.ResponseWriter, r *http.Request) {
@@ -562,6 +584,7 @@ func TestPaginateLimitStopsFetching(t *testing.T) {
 }
 
 func TestPaginatePagelen(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		limit int
@@ -596,6 +619,7 @@ func TestPaginatePagelen(t *testing.T) {
 }
 
 func TestPaginateLoopGuard(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	next := srv.URL + "/items?page=2"
 	srv.HandleFunc(http.MethodGet, "/items", func(w http.ResponseWriter, r *http.Request) {

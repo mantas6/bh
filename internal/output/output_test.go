@@ -8,6 +8,7 @@ import (
 )
 
 func TestTableTTYAligns(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	tbl := NewTable(&buf, true)
 	tbl.AddRow("#1", "short", "ada")
@@ -26,6 +27,7 @@ func TestTableTTYAligns(t *testing.T) {
 }
 
 func TestTableNonTTYTabs(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	tbl := NewTable(&buf, false)
 	tbl.AddRow("#1", "short", "ada")
@@ -39,6 +41,7 @@ func TestTableNonTTYTabs(t *testing.T) {
 }
 
 func TestRelativeTime(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
 		name string
@@ -53,6 +56,7 @@ func TestRelativeTime(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if got := RelativeTime(tc.t, now); got != tc.want {
 				t.Errorf("RelativeTime = %q, want %q", got, tc.want)
 			}
@@ -61,6 +65,7 @@ func TestRelativeTime(t *testing.T) {
 }
 
 func TestColorSchemeDisabled(t *testing.T) {
+	t.Parallel()
 	cs := NewColorScheme(false)
 	if got := cs.Green("x"); got != "x" {
 		t.Errorf("disabled Green = %q", got)
@@ -71,6 +76,7 @@ func TestColorSchemeDisabled(t *testing.T) {
 }
 
 func TestColorSchemeEnabled(t *testing.T) {
+	t.Parallel()
 	cs := NewColorScheme(true)
 	if got := cs.StateColor("OPEN"); !strings.Contains(got, "\x1b[32m") {
 		t.Errorf("OPEN should be green: %q", got)

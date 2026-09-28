@@ -9,6 +9,7 @@ import (
 )
 
 func TestParseRemoteURL(t *testing.T) {
+	t.Parallel()
 	want := git.Repo{Host: "bitbucket.org", Workspace: "ws", Name: "repo"}
 
 	tests := []struct {
@@ -43,6 +44,7 @@ func TestParseRemoteURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			repo, ok := git.ParseRemoteURL(tt.raw)
 			if ok != tt.ok {
 				t.Fatalf("ParseRemoteURL(%q) ok = %v, want %v", tt.raw, ok, tt.ok)
@@ -55,6 +57,7 @@ func TestParseRemoteURL(t *testing.T) {
 }
 
 func TestIsSSHURL(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		raw  string
 		want bool
@@ -81,6 +84,7 @@ func TestIsSSHURL(t *testing.T) {
 }
 
 func TestRepoURLs(t *testing.T) {
+	t.Parallel()
 	r := git.Repo{Host: "bitbucket.org", Workspace: "ws", Name: "repo"}
 	if got := r.WebURL(); got != "https://bitbucket.org/ws/repo" {
 		t.Errorf("WebURL = %q", got)
@@ -97,6 +101,7 @@ func TestRepoURLs(t *testing.T) {
 }
 
 func TestParseRepoArg(t *testing.T) {
+	t.Parallel()
 	want := git.Repo{Host: "bitbucket.org", Workspace: "ws", Name: "repo"}
 
 	tests := []struct {
@@ -139,6 +144,7 @@ func TestParseRepoArg(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			repo, err := git.ParseRepoArg(tt.arg)
 			if tt.wantErr {
 				if err == nil {
@@ -167,12 +173,14 @@ func remoteVOutput(pairs ...[2]string) string {
 }
 
 func TestResolveRepo(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	origin := git.Repo{Host: "bitbucket.org", Workspace: "ows", Name: "repo"}
 	upstream := git.Repo{Host: "bitbucket.org", Workspace: "ups", Name: "repo"}
 
 	t.Run("upstream over origin", func(t *testing.T) {
-		s := gittest.New().Register(remoteVOutput(
+		t.Parallel()
+		s := gittest.New(t).Register(remoteVOutput(
 			[2]string{"origin", "git@bitbucket.org:ows/repo.git"},
 			[2]string{"upstream", "https://bitbucket.org/ups/repo.git"},
 		), nil, "remote", "-v")
@@ -190,7 +198,8 @@ func TestResolveRepo(t *testing.T) {
 	})
 
 	t.Run("origin when no upstream", func(t *testing.T) {
-		s := gittest.New().Register(remoteVOutput(
+		t.Parallel()
+		s := gittest.New(t).Register(remoteVOutput(
 			[2]string{"origin", "git@bitbucket.org:ows/repo.git"},
 		), nil, "remote", "-v")
 
@@ -207,7 +216,8 @@ func TestResolveRepo(t *testing.T) {
 	})
 
 	t.Run("first bitbucket remote", func(t *testing.T) {
-		s := gittest.New().Register(remoteVOutput(
+		t.Parallel()
+		s := gittest.New(t).Register(remoteVOutput(
 			[2]string{"gh", "git@github.com:x/y.git"},
 			[2]string{"bb", "git@bitbucket.org:ows/repo.git"},
 		), nil, "remote", "-v")
@@ -225,7 +235,8 @@ func TestResolveRepo(t *testing.T) {
 	})
 
 	t.Run("override flag", func(t *testing.T) {
-		s := gittest.New().Register(remoteVOutput(
+		t.Parallel()
+		s := gittest.New(t).Register(remoteVOutput(
 			[2]string{"origin", "git@bitbucket.org:ows/repo.git"},
 		), nil, "remote", "-v")
 
@@ -242,7 +253,8 @@ func TestResolveRepo(t *testing.T) {
 	})
 
 	t.Run("override matches remote", func(t *testing.T) {
-		s := gittest.New().Register(remoteVOutput(
+		t.Parallel()
+		s := gittest.New(t).Register(remoteVOutput(
 			[2]string{"origin", "git@bitbucket.org:ows/repo.git"},
 		), nil, "remote", "-v")
 
@@ -256,7 +268,8 @@ func TestResolveRepo(t *testing.T) {
 	})
 
 	t.Run("override matches scp remote via URL form", func(t *testing.T) {
-		s := gittest.New().Register(remoteVOutput(
+		t.Parallel()
+		s := gittest.New(t).Register(remoteVOutput(
 			[2]string{"origin", "https://bitbucket.org/ows/repo.git"},
 		), nil, "remote", "-v")
 
@@ -273,8 +286,9 @@ func TestResolveRepo(t *testing.T) {
 	})
 
 	t.Run("override outside git checkout", func(t *testing.T) {
+		t.Parallel()
 		notRepo := &git.Error{Args: []string{"remote", "-v"}, ExitCode: 128, Stderr: "fatal: not a git repository"}
-		s := gittest.New().Register("", notRepo, "remote", "-v")
+		s := gittest.New(t).Register("", notRepo, "remote", "-v")
 
 		repo, rr, err := git.ResolveRepo(ctx, s, "ws/repo")
 		if err != nil {
@@ -289,6 +303,7 @@ func TestResolveRepo(t *testing.T) {
 	})
 
 	t.Run("override with nil runner", func(t *testing.T) {
+		t.Parallel()
 		repo, rr, err := git.ResolveRepo(ctx, nil, "bitbucket.org/ws/repo")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -302,20 +317,21 @@ func TestResolveRepo(t *testing.T) {
 	})
 
 	t.Run("invalid override does not run git", func(t *testing.T) {
-		s := gittest.New()
-		s.FailUnstubbed = true
+		t.Parallel()
+		s := gittest.New(t)
 
 		if _, _, err := git.ResolveRepo(ctx, s, "not-a-repo"); err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		if len(s.Calls) != 0 {
+		if len(s.Calls()) != 0 {
 			t.Fatalf("git calls = %v, want none", s.CallStrings())
 		}
 	})
 
 	t.Run("remotes error without override", func(t *testing.T) {
+		t.Parallel()
 		notRepo := &git.Error{Args: []string{"remote", "-v"}, ExitCode: 128, Stderr: "fatal: not a git repository"}
-		s := gittest.New().Register("", notRepo, "remote", "-v")
+		s := gittest.New(t).Register("", notRepo, "remote", "-v")
 
 		_, _, err := git.ResolveRepo(ctx, s, "")
 		if !errors.Is(err, notRepo) {
@@ -324,13 +340,15 @@ func TestResolveRepo(t *testing.T) {
 	})
 
 	t.Run("nil runner without override", func(t *testing.T) {
+		t.Parallel()
 		if _, _, err := git.ResolveRepo(ctx, nil, ""); err == nil {
 			t.Fatal("expected error, got nil")
 		}
 	})
 
 	t.Run("no bitbucket remote", func(t *testing.T) {
-		s := gittest.New().Register(remoteVOutput(
+		t.Parallel()
+		s := gittest.New(t).Register(remoteVOutput(
 			[2]string{"origin", "git@github.com:x/y.git"},
 		), nil, "remote", "-v")
 
@@ -346,6 +364,7 @@ func TestResolveRepo(t *testing.T) {
 }
 
 func TestBitbucketRemotes(t *testing.T) {
+	t.Parallel()
 	remotes := []git.Remote{
 		{Name: "gh", FetchURL: "git@github.com:x/y.git", PushURL: "git@github.com:x/y.git"},
 		{Name: "origin", FetchURL: "/local/mirror", PushURL: "git@bitbucket.org:ows/repo.git"},

@@ -15,6 +15,7 @@ import (
 )
 
 func TestCreatePullRequestBodyShape(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests", 201,
 		map[string]any{"id": 42, "title": "Feature"})
@@ -65,6 +66,7 @@ func TestCreatePullRequestBodyShape(t *testing.T) {
 }
 
 func TestCreatePullRequestOmitsDestination(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests", 201,
 		map[string]any{"id": 1})
@@ -90,6 +92,7 @@ func TestCreatePullRequestOmitsDestination(t *testing.T) {
 }
 
 func TestPullRequestForBranch(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	var gotQuery, gotSort string
 	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/pullrequests", func(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +117,7 @@ func TestPullRequestForBranch(t *testing.T) {
 }
 
 func TestPullRequestForBranchEscapesQuery(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	var gotQuery string
 	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/pullrequests", func(w http.ResponseWriter, r *http.Request) {
@@ -131,6 +135,7 @@ func TestPullRequestForBranchEscapesQuery(t *testing.T) {
 }
 
 func TestQuoteBBQL(t *testing.T) {
+	t.Parallel()
 	tests := []struct{ in, want string }{
 		{"plain", `"plain"`},
 		{"", `""`},
@@ -146,6 +151,7 @@ func TestQuoteBBQL(t *testing.T) {
 }
 
 func TestListPullRequestsEmptyIsNonNil(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodGet, "/repositories/ws/repo/pullrequests", 200, `{"values":[]}`)
 	c := srv.APIClient()
@@ -159,6 +165,7 @@ func TestListPullRequestsEmptyIsNonNil(t *testing.T) {
 }
 
 func TestPullRequestForBranchNone(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodGet, "/repositories/ws/repo/pullrequests", 200,
 		`{"values":[]}`)
@@ -170,6 +177,7 @@ func TestPullRequestForBranchNone(t *testing.T) {
 }
 
 func TestListPullRequestsState(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	var states []string
 	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/pullrequests", func(w http.ResponseWriter, r *http.Request) {
@@ -214,6 +222,7 @@ const (
 )
 
 func TestMergePolling(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		location   string
@@ -260,6 +269,7 @@ func TestMergePolling(t *testing.T) {
 }
 
 func TestMergeFailedStatus(t *testing.T) {
+	t.Parallel()
 	srv, _ := mergeServer(t, "SRV"+statusPath, statusPath, pending, `{"task_status":"FAILED"}`)
 	_, err := srv.APIClient().MergePullRequest(t.Context(), "ws/repo", 5, api.MergeInput{})
 	if err == nil || !strings.Contains(err.Error(), `merge failed with task status "FAILED"`) {
@@ -268,6 +278,7 @@ func TestMergeFailedStatus(t *testing.T) {
 }
 
 func TestMergePollingGivesUp(t *testing.T) {
+	t.Parallel()
 	srv, polls := mergeServer(t, "SRV"+statusPath, statusPath, pending)
 	c := srv.APIClient()
 	c.MaxPollAttempts = 3
@@ -281,6 +292,7 @@ func TestMergePollingGivesUp(t *testing.T) {
 }
 
 func TestMergePollingCancelled(t *testing.T) {
+	t.Parallel()
 	srv, polls := mergeServer(t, "SRV"+statusPath, statusPath, pending)
 	c := srv.APIClient()
 	ctx, cancel := context.WithCancel(t.Context())
@@ -301,6 +313,7 @@ func TestMergePollingCancelled(t *testing.T) {
 }
 
 func TestMergeAcceptedWithoutLocation(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/5/merge", http.StatusAccepted, `{}`)
 	_, err := srv.APIClient().MergePullRequest(t.Context(), "ws/repo", 5, api.MergeInput{})
@@ -310,6 +323,7 @@ func TestMergeAcceptedWithoutLocation(t *testing.T) {
 }
 
 func TestMergeSync(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/5/merge", 200,
 		map[string]any{"id": 5, "state": "MERGED"})
@@ -324,6 +338,7 @@ func TestMergeSync(t *testing.T) {
 }
 
 func TestApproveDeclineChanges(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/1/approve", 200,
 		map[string]any{"approved": true})
@@ -358,6 +373,7 @@ func TestApproveDeclineChanges(t *testing.T) {
 }
 
 func TestUpdatePullRequest(t *testing.T) {
+	t.Parallel()
 	title, desc, base, draft := "New", "", "develop", false
 	tests := []struct {
 		name string

@@ -2,12 +2,12 @@ package comment
 
 import (
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
+	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/cmdutil"
 )
 
@@ -18,34 +18,35 @@ func listComments(srv *apitest.Server, comments []api.Comment) {
 		map[string]any{"values": comments})
 }
 
-func newListOpts(srv *apitest.Server, ios *cmdutil.IOStreams) *ListOptions {
+func newListOpts(t *testing.T, srv *apitest.Server, ios *cmdutil.IOStreams) *ListOptions {
 	return &ListOptions{
 		IO:        ios,
-		APIClient: clientFunc(srv),
-		Git:       gitFunc(newGitStub()),
-		BaseRepo:  baseRepoFunc(),
-		Now:       nowFunc(),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(newGitStub(t)),
+		BaseRepo:  cmdtest.BaseRepoFunc(nil),
+		Now:       cmdtest.FixedNow,
 		Arg:       "123",
 	}
 }
 
 func TestListThreadedWithInlineAndResolved(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 
-	root := commentAt(1, "ada", "Looks good overall", 60)
-	root.Inline = &api.Inline{Path: "main.go", To: intPtr(42)}
+	root := cmdtest.CommentAt(1, "ada", "Looks good overall", 60)
+	root.Inline = &api.Inline{Path: "main.go", To: new(42)}
 	root.Resolution = &api.Resolution{Type: "resolved"}
 
-	reply := commentAt(2, "bob", "Thanks!", 30)
+	reply := cmdtest.CommentAt(2, "bob", "Thanks!", 30)
 	reply.Parent = &api.CommentRef{ID: 1}
 
-	deleted := commentAt(3, "eve", "gone", 10)
+	deleted := cmdtest.CommentAt(3, "eve", "gone", 10)
 	deleted.Deleted = true
 
 	listComments(srv, []api.Comment{reply, root, deleted})
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	if err := listRun(t.Context(), newListOpts(srv, ios)); err != nil {
+	if err := listRun(t.Context(), newListOpts(t, srv, ios)); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 
@@ -79,13 +80,14 @@ func TestListThreadedWithInlineAndResolved(t *testing.T) {
 }
 
 func TestListInlineOldSide(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	c := commentAt(1, "ada", "old line", 5)
-	c.Inline = &api.Inline{Path: "old.go", From: intPtr(7)}
+	c := cmdtest.CommentAt(1, "ada", "old line", 5)
+	c.Inline = &api.Inline{Path: "old.go", From: new(7)}
 	listComments(srv, []api.Comment{c})
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	if err := listRun(t.Context(), newListOpts(srv, ios)); err != nil {
+	if err := listRun(t.Context(), newListOpts(t, srv, ios)); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	if !strings.Contains(out.String(), "old old.go:7") {
@@ -94,14 +96,15 @@ func TestListInlineOldSide(t *testing.T) {
 }
 
 func TestListUnresolvedFilter(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	resolved := commentAt(1, "ada", "resolved thread", 60)
+	resolved := cmdtest.CommentAt(1, "ada", "resolved thread", 60)
 	resolved.Resolution = &api.Resolution{Type: "resolved"}
-	open := commentAt(2, "bob", "open thread", 30)
+	open := cmdtest.CommentAt(2, "bob", "open thread", 30)
 	listComments(srv, []api.Comment{resolved, open})
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	opts := newListOpts(srv, ios)
+	opts := newListOpts(t, srv, ios)
 	opts.Unresolved = true
 	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
@@ -116,11 +119,12 @@ func TestListUnresolvedFilter(t *testing.T) {
 }
 
 func TestListEmpty(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	listComments(srv, []api.Comment{})
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	if err := listRun(t.Context(), newListOpts(srv, ios)); err != nil {
+	if err := listRun(t.Context(), newListOpts(t, srv, ios)); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	if got := out.String(); !strings.Contains(got, "No comments on pull request #123") {
@@ -129,16 +133,17 @@ func TestListEmpty(t *testing.T) {
 }
 
 func TestListJSON(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	resolved := commentAt(1, "ada", "resolved", 60)
+	resolved := cmdtest.CommentAt(1, "ada", "resolved", 60)
 	resolved.Resolution = &api.Resolution{Type: "resolved"}
-	open := commentAt(2, "bob", "open", 30)
-	deleted := commentAt(3, "eve", "gone", 10)
+	open := cmdtest.CommentAt(2, "bob", "open", 30)
+	deleted := cmdtest.CommentAt(3, "eve", "gone", 10)
 	deleted.Deleted = true
 	listComments(srv, []api.Comment{resolved, open, deleted})
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	opts := newListOpts(srv, ios)
+	opts := newListOpts(t, srv, ios)
 	opts.JSON = true
 	opts.Unresolved = true
 	if err := listRun(t.Context(), opts); err != nil {
@@ -156,21 +161,22 @@ func TestListJSON(t *testing.T) {
 
 // threadedComments returns two threads: #1 (with replies #2, #3) and #4.
 func threadedComments() []api.Comment {
-	root1 := commentAt(1, "ada", "first thread", 60)
-	reply1 := commentAt(2, "bob", "reply one", 50)
+	root1 := cmdtest.CommentAt(1, "ada", "first thread", 60)
+	reply1 := cmdtest.CommentAt(2, "bob", "reply one", 50)
 	reply1.Parent = &api.CommentRef{ID: 1}
-	reply2 := commentAt(3, "cara", "reply two", 40)
+	reply2 := cmdtest.CommentAt(3, "cara", "reply two", 40)
 	reply2.Parent = &api.CommentRef{ID: 1}
-	root2 := commentAt(4, "dan", "second thread", 30)
+	root2 := cmdtest.CommentAt(4, "dan", "second thread", 30)
 	return []api.Comment{root1, reply1, reply2, root2}
 }
 
 func TestListLimitCountsThreads(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	listComments(srv, threadedComments())
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	opts := newListOpts(srv, ios)
+	opts := newListOpts(t, srv, ios)
 	opts.Limit = 1
 	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
@@ -186,18 +192,19 @@ func TestListLimitCountsThreads(t *testing.T) {
 	}
 
 	// All comments are fetched; the limit is not passed to the API.
-	req := findRequest(srv, "GET", "/pullrequests/123/comments")
+	req := cmdtest.FindRequest(srv, "GET", "/pullrequests/123/comments")
 	if pl := req.Query.Get("pagelen"); pl != "50" {
 		t.Errorf("pagelen = %q, want 50 (unlimited fetch)", pl)
 	}
 }
 
 func TestListLimitJSONCountsThreads(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	listComments(srv, threadedComments())
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	opts := newListOpts(srv, ios)
+	opts := newListOpts(t, srv, ios)
 	opts.Limit = 1
 	opts.JSON = true
 	if err := listRun(t.Context(), opts); err != nil {
@@ -217,11 +224,12 @@ func TestListLimitJSONCountsThreads(t *testing.T) {
 }
 
 func TestListNilNow(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	listComments(srv, []api.Comment{commentAt(1, "ada", "hi", 5)})
+	listComments(srv, []api.Comment{cmdtest.CommentAt(1, "ada", "hi", 5)})
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	opts := newListOpts(srv, ios)
+	opts := newListOpts(t, srv, ios)
 	opts.Now = nil
 	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
@@ -232,31 +240,26 @@ func TestListNilNow(t *testing.T) {
 }
 
 func TestListNegativeLimitFlagError(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 	cmd := NewCmdList(f, func(*ListOptions) error {
 		t.Error("runF should not be called")
 		return nil
 	})
-	cmd.SetArgs([]string{"123", "-L", "-1"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	err := cmd.Execute()
-	var fe *cmdutil.FlagError
-	if !errors.As(err, &fe) {
-		t.Fatalf("err = %v, want FlagError", err)
-	}
+	_, _, err := cmdtest.RunCommand(t, cmd, "123", "-L", "-1")
+	cmdtest.AssertFlagError(t, err, "")
 }
 
 func TestListCurrentBranch(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200,
-		map[string]any{"values": []*api.PullRequest{samplePR()}})
+		map[string]any{"values": []*api.PullRequest{cmdtest.SamplePR()}})
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123/comments", 200,
-		map[string]any{"values": []api.Comment{commentAt(1, "ada", "hi", 5)}})
+		map[string]any{"values": []api.Comment{cmdtest.CommentAt(1, "ada", "hi", 5)}})
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	opts := newListOpts(srv, ios)
+	opts := newListOpts(t, srv, ios)
 	opts.Arg = ""
 	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
@@ -267,18 +270,15 @@ func TestListCurrentBranch(t *testing.T) {
 }
 
 func TestListFlagParsing(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 
 	var captured *ListOptions
 	cmd := NewCmdList(f, func(o *ListOptions) error {
 		captured = o
 		return nil
 	})
-	cmd.SetArgs([]string{"55", "--json", "--unresolved", "-L", "10"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	if err := cmd.Execute(); err != nil {
+	if _, _, err := cmdtest.RunCommand(t, cmd, "55", "--json", "--unresolved", "-L", "10"); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if captured.Arg != "55" || !captured.JSON || !captured.Unresolved || captured.Limit != 10 {
@@ -287,20 +287,21 @@ func TestListFlagParsing(t *testing.T) {
 }
 
 func TestListByBranchWithoutGit(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200,
-		map[string]any{"values": []*api.PullRequest{samplePR()}})
+		map[string]any{"values": []*api.PullRequest{cmdtest.SamplePR()}})
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123/comments", 200,
-		map[string]any{"values": []api.Comment{commentAt(1, "ada", "hi", 5)}})
+		map[string]any{"values": []api.Comment{cmdtest.CommentAt(1, "ada", "hi", 5)}})
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	opts := newListOpts(srv, ios)
+	opts := newListOpts(t, srv, ios)
 	opts.Arg = "feature"
 	opts.Git = nil // a branch selector must not need git
 	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
-	if q := srv.Requests()[0].Query.Get("q"); !strings.Contains(q, `source.branch.name="feature"`) {
+	if q := cmdtest.RequireRequest(t, srv, "GET", "/pullrequests").Query.Get("q"); !strings.Contains(q, `source.branch.name="feature"`) {
 		t.Errorf("q = %q", q)
 	}
 	if !strings.Contains(out.String(), "#1 ada") {
@@ -309,13 +310,14 @@ func TestListByBranchWithoutGit(t *testing.T) {
 }
 
 func TestListByURLWithoutGitOrBaseRepo(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/repositories/other/repo/pullrequests/9", 200, samplePR())
+	srv.Handle("GET", "/repositories/other/repo/pullrequests/9", 200, cmdtest.SamplePR())
 	srv.Handle("GET", "/repositories/other/repo/pullrequests/123/comments", 200,
-		map[string]any{"values": []api.Comment{commentAt(1, "ada", "hi", 5)}})
+		map[string]any{"values": []api.Comment{cmdtest.CommentAt(1, "ada", "hi", 5)}})
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	opts := newListOpts(srv, ios)
+	opts := newListOpts(t, srv, ios)
 	opts.Arg = "https://bitbucket.org/other/repo/pull-requests/9"
 	opts.Git = nil
 	opts.BaseRepo = nil

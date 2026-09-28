@@ -1,13 +1,13 @@
 package pr
 
 import (
-	"encoding/json"
-	"errors"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
+	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
 	"github.com/mantas6/bh/internal/git/gittest"
@@ -20,35 +20,34 @@ func createdPRResponse() *api.PullRequest {
 	}
 }
 
-func originRemote() *git.ResolvedRemote {
-	return &git.ResolvedRemote{Remote: git.Remote{Name: "origin"}, Repo: testRepo()}
+// untrackedStub returns a strict git stub for a head branch with no upstream
+// tracking configuration.
+func untrackedStub(t *testing.T, head string) *gittest.Stub {
+	return gittest.New(t).
+		Register("", gittest.Exit(1), "config", "--get", "branch."+head+".remote").
+		Register("", gittest.Exit(1), "config", "--get", "branch."+head+".merge")
 }
 
-// findRequest returns the last recorded request matching method+path suffix.
-func findRequest(srv *apitest.Server, method, pathSuffix string) *apitest.Request {
-	var found *apitest.Request
-	reqs := srv.Requests()
-	for i := range reqs {
-		if reqs[i].Method == method && strings.HasSuffix(reqs[i].Path, pathSuffix) {
-			found = &reqs[i]
-		}
-	}
-	return found
+// pushedStub is untrackedStub for a head branch that already exists on origin
+// and has no unpushed commits.
+func pushedStub(t *testing.T, head string) *gittest.Stub {
+	return untrackedStub(t, head).
+		Register("", nil, "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/"+head).
+		Register("0", nil, "rev-list", "--count", "origin/"+head+".."+head)
 }
 
 func TestCreateBodyShape(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
-	srv.Handle("GET", "/workspaces/myws/members", 200, valuesPage([]api.WorkspaceMember{
-		{User: api.User{UUID: "{bob-uuid}", Nickname: "bob", DisplayName: "Bob"}},
-	}))
+	srv.Handle("GET", "/workspaces/myws/members", 200, cmdtest.Members("bob"))
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:                ios,
-		APIClient:         func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:               gitFunc(gittest.New()),
-		BaseRepo:          baseRepoFunc(originRemote()),
+		APIClient:         cmdtest.ClientFunc(srv),
+		Git:               cmdtest.GitFunc(pushedStub(t, "feature")),
+		BaseRepo:          cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Title:             "My title",
 		Body:              "My body",
 		Head:              "feature",
@@ -65,14 +64,8 @@ func TestCreateBodyShape(t *testing.T) {
 		t.Errorf("URL not printed: %q", out.String())
 	}
 
-	req := findRequest(srv, "POST", "/pullrequests")
-	if req == nil {
-		t.Fatal("no create request recorded")
-	}
 	var body map[string]any
-	if err := json.Unmarshal(req.Body, &body); err != nil {
-		t.Fatalf("body: %v", err)
-	}
+	cmdtest.RequireRequest(t, srv, "POST", "/pullrequests").DecodeJSON(t, &body)
 	if body["title"] != "My title" {
 		t.Errorf("title = %v", body["title"])
 	}
@@ -95,12 +88,14 @@ func TestCreateBodyShape(t *testing.T) {
 }
 
 func TestCreateAutoPushTTYYes(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
 
-	stub := gittest.New()
+	stub := untrackedStub(t, "feature")
 	// Branch not on remote -> push path.
 	stub.Register("", gittest.Exit(2), "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/feature")
+	stub.Expect("push", "-u", "--end-of-options", "origin", "feature")
 
 	ios, in, _, _ := cmdutil.TestIOStreams()
 	ios.SetStdinTTY(true)
@@ -108,9 +103,9 @@ func TestCreateAutoPushTTYYes(t *testing.T) {
 
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(stub),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(stub),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Title:     "T",
 		Head:      "feature",
 	}
@@ -119,23 +114,24 @@ func TestCreateAutoPushTTYYes(t *testing.T) {
 		t.Fatalf("createRun: %v", err)
 	}
 
-	if len(stub.Interactive) != 1 || strings.Join(stub.Interactive[0], " ") != "push -u --end-of-options origin feature" {
-		t.Errorf("push argv = %v", stub.Interactive)
+	if !slices.Equal(stub.InteractiveStrings(), []string{"push -u --end-of-options origin feature"}) {
+		t.Errorf("push argv = %v", stub.InteractiveStrings())
 	}
 }
 
 func TestCreateNonTTYNoPushErrors(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 
-	stub := gittest.New()
+	stub := untrackedStub(t, "feature")
 	stub.Register("", gittest.Exit(2), "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/feature")
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(stub),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(stub),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Title:     "T",
 		Head:      "feature",
 	}
@@ -144,24 +140,25 @@ func TestCreateNonTTYNoPushErrors(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "has not been pushed to origin; run with --push") {
 		t.Fatalf("err = %v", err)
 	}
-	if len(stub.Interactive) != 0 {
-		t.Errorf("should not push: %v", stub.Interactive)
+	if len(stub.Interactive()) != 0 {
+		t.Errorf("should not push: %v", stub.InteractiveStrings())
 	}
 }
 
 func TestCreateNonTTYWithPush(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
 
-	stub := gittest.New()
-	stub.Register("", gittest.Exit(2), "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/feature")
+	stub := untrackedStub(t, "feature")
+	stub.Expect("push", "-u", "--end-of-options", "origin", "feature")
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(stub),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(stub),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Title:     "T",
 		Head:      "feature",
 		Push:      true,
@@ -170,16 +167,17 @@ func TestCreateNonTTYWithPush(t *testing.T) {
 	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
-	if len(stub.Interactive) != 1 || strings.Join(stub.Interactive[0], " ") != "push -u --end-of-options origin feature" {
-		t.Errorf("push argv = %v", stub.Interactive)
+	if !slices.Equal(stub.InteractiveStrings(), []string{"push -u --end-of-options origin feature"}) {
+		t.Errorf("push argv = %v", stub.InteractiveStrings())
 	}
 }
 
 func TestCreateUpstreamAheadWarns(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
 
-	stub := gittest.New()
+	stub := gittest.New(t)
 	stub.Register("origin", nil, "config", "--get", "branch.feature.remote")
 	stub.Register("refs/heads/feature", nil, "config", "--get", "branch.feature.merge")
 	stub.Register("3", nil, "rev-list", "--count", "origin/feature..feature")
@@ -187,9 +185,9 @@ func TestCreateUpstreamAheadWarns(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(stub),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(stub),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Title:     "T",
 		Head:      "feature",
 	}
@@ -200,12 +198,13 @@ func TestCreateUpstreamAheadWarns(t *testing.T) {
 	if !strings.Contains(errOut.String(), "! local branch is 3 commits ahead of origin/feature") {
 		t.Errorf("warning missing: %q", errOut.String())
 	}
-	if len(stub.Interactive) != 0 {
-		t.Errorf("should not push when upstream exists: %v", stub.Interactive)
+	if len(stub.Interactive()) != 0 {
+		t.Errorf("should not push when upstream exists: %v", stub.InteractiveStrings())
 	}
 }
 
 func TestCreateFillSingleCommit(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo", 200, api.Repository{
 		FullName:   "myws/myrepo",
@@ -213,7 +212,7 @@ func TestCreateFillSingleCommit(t *testing.T) {
 	})
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
 
-	stub := gittest.New()
+	stub := pushedStub(t, "feature")
 	// git.Commits log for main..feature -> one commit.
 	stub.Register("abc\x00Fix the bug\x00Detailed body\x1e", nil,
 		"log", "--pretty=format:%H%x00%s%x00%b%x1e", "--end-of-options", "origin/main..feature")
@@ -221,9 +220,9 @@ func TestCreateFillSingleCommit(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(stub),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(stub),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Head:      "feature",
 		Fill:      true,
 	}
@@ -232,9 +231,8 @@ func TestCreateFillSingleCommit(t *testing.T) {
 		t.Fatalf("createRun: %v", err)
 	}
 
-	req := findRequest(srv, "POST", "/pullrequests")
 	var body map[string]any
-	json.Unmarshal(req.Body, &body)
+	cmdtest.RequireRequest(t, srv, "POST", "/pullrequests").DecodeJSON(t, &body)
 	if body["title"] != "Fix the bug" {
 		t.Errorf("title = %v", body["title"])
 	}
@@ -244,19 +242,20 @@ func TestCreateFillSingleCommit(t *testing.T) {
 }
 
 func TestCreateWeb(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo", 200, api.Repository{
 		FullName:   "myws/myrepo",
 		MainBranch: &api.Branch{Name: "main"},
 	})
 
-	fb := &fakeBrowser{}
+	fb := &cmdtest.FakeBrowser{}
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(gittest.New()),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(pushedStub(t, "feature")),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Browser:   fb,
 		Head:      "feature",
 		Web:       true,
@@ -266,31 +265,30 @@ func TestCreateWeb(t *testing.T) {
 		t.Fatalf("createRun: %v", err)
 	}
 	want := "https://bitbucket.org/myws/myrepo/pull-requests/new?source=feature&dest=main"
-	if fb.url != want {
-		t.Errorf("web url = %q, want %q", fb.url, want)
+	if fb.URL() != want {
+		t.Errorf("web url = %q, want %q", fb.URL(), want)
 	}
 }
 
 func TestCreateNonTTYRequiresTitle(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(gittest.New()),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(pushedStub(t, "feature")),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Head:      "feature",
 	}
 
 	err := createRun(t.Context(), opts)
-	var fe *cmdutil.FlagError
-	if !errors.As(err, &fe) || !strings.Contains(err.Error(), "title is required when not running interactively; use --title or --fill") {
-		t.Fatalf("err = %v", err)
-	}
+	cmdtest.AssertFlagError(t, err, "title is required when not running interactively; use --title or --fill")
 }
 
 func TestCreateTTYEmptyTitleErrors(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 
 	ios, in, _, _ := cmdutil.TestIOStreams()
@@ -298,9 +296,9 @@ func TestCreateTTYEmptyTitleErrors(t *testing.T) {
 	in.WriteString("\n")
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(gittest.New()),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(pushedStub(t, "feature")),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Head:      "feature",
 	}
 
@@ -313,23 +311,25 @@ func TestCreateTTYEmptyTitleErrors(t *testing.T) {
 // upstreamBaseRemote is a base repo resolved from an "upstream" remote, as in
 // a fork workflow where the user pushes to "origin" (their fork).
 func upstreamBaseRemote() *git.ResolvedRemote {
-	return &git.ResolvedRemote{Remote: git.Remote{Name: "upstream"}, Repo: testRepo()}
+	return &git.ResolvedRemote{Remote: git.Remote{Name: "upstream"}, Repo: cmdtest.TestRepo()}
 }
 
 func TestCreatePushTargetsBranchUpstreamRemote(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
 
-	stub := gittest.New()
+	stub := gittest.New(t)
 	stub.Register("fork", nil, "config", "--get", "branch.feature.remote")
 	stub.Register("refs/heads/feature", nil, "config", "--get", "branch.feature.merge")
+	stub.Expect("push", "-u", "--end-of-options", "fork", "feature")
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(stub),
-		BaseRepo:  baseRepoFunc(upstreamBaseRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(stub),
+		BaseRepo:  cmdtest.BaseRepoFunc(upstreamBaseRemote()),
 		Title:     "T",
 		Head:      "feature",
 		Push:      true,
@@ -337,17 +337,17 @@ func TestCreatePushTargetsBranchUpstreamRemote(t *testing.T) {
 	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
-	if len(stub.Interactive) != 1 || strings.Join(stub.Interactive[0], " ") != "push -u --end-of-options fork feature" {
-		t.Errorf("push argv = %v, want push to fork", stub.Interactive)
+	if !slices.Equal(stub.InteractiveStrings(), []string{"push -u --end-of-options fork feature"}) {
+		t.Errorf("push argv = %v, want push to fork", stub.InteractiveStrings())
 	}
 }
 
 func TestCreatePushUntrackedDefaultsToOrigin(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
 
-	stub := gittest.New()
-	stub.FailUnstubbed = true
+	stub := gittest.New(t)
 	stub.Register("", gittest.Exit(1), "config", "--get", "branch.feature.remote")
 	stub.Register("", gittest.Exit(1), "config", "--get", "branch.feature.merge")
 	stub.Expect("push", "-u", "--end-of-options", "origin", "feature")
@@ -355,9 +355,9 @@ func TestCreatePushUntrackedDefaultsToOrigin(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(stub),
-		BaseRepo:  baseRepoFunc(upstreamBaseRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(stub),
+		BaseRepo:  cmdtest.BaseRepoFunc(upstreamBaseRemote()),
 		Title:     "T",
 		Head:      "feature",
 		Push:      true,
@@ -365,25 +365,27 @@ func TestCreatePushUntrackedDefaultsToOrigin(t *testing.T) {
 	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
-	if len(stub.Interactive) != 1 || strings.Join(stub.Interactive[0], " ") != "push -u --end-of-options origin feature" {
-		t.Errorf("push argv = %v, want push to origin (not upstream)", stub.Interactive)
+	if !slices.Equal(stub.InteractiveStrings(), []string{"push -u --end-of-options origin feature"}) {
+		t.Errorf("push argv = %v, want push to origin (not upstream)", stub.InteractiveStrings())
 	}
 }
 
 func TestCreatePushWhenRemoteBranchExistsUntracked(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
 
-	stub := gittest.New()
-	// No tracking config, but the branch already exists on origin.
+	stub := untrackedStub(t, "feature")
+	// The branch already exists on origin, but --push still pushes.
 	stub.Register("", nil, "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/feature")
+	stub.Expect("push", "-u", "--end-of-options", "origin", "feature")
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(stub),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(stub),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Title:     "T",
 		Head:      "feature",
 		Push:      true,
@@ -391,25 +393,26 @@ func TestCreatePushWhenRemoteBranchExistsUntracked(t *testing.T) {
 	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
-	if len(stub.Interactive) != 1 || strings.Join(stub.Interactive[0], " ") != "push -u --end-of-options origin feature" {
-		t.Errorf("push argv = %v, want a push", stub.Interactive)
+	if !slices.Equal(stub.InteractiveStrings(), []string{"push -u --end-of-options origin feature"}) {
+		t.Errorf("push argv = %v, want a push", stub.InteractiveStrings())
 	}
 }
 
 func TestCreateRemoteBranchExistsUntrackedWarnsAhead(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
 
-	stub := gittest.New()
+	stub := untrackedStub(t, "feature")
 	stub.Register("", nil, "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/feature")
 	stub.Register("1", nil, "rev-list", "--count", "origin/feature..feature")
 
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(stub),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(stub),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Title:     "T",
 		Head:      "feature",
 	}
@@ -419,22 +422,23 @@ func TestCreateRemoteBranchExistsUntrackedWarnsAhead(t *testing.T) {
 	if !strings.Contains(errOut.String(), "local branch is 1 commit ahead of origin/feature") {
 		t.Errorf("warning missing or not singular: %q", errOut.String())
 	}
-	if len(stub.Interactive) != 0 {
-		t.Errorf("should not push without --push: %v", stub.Interactive)
+	if len(stub.Interactive()) != 0 {
+		t.Errorf("should not push without --push: %v", stub.InteractiveStrings())
 	}
 }
 
 func TestCreateFillUnknownBaseErrors(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo", 200, api.Repository{FullName: "myws/myrepo"})
 
-	stub := gittest.New()
+	stub := gittest.New(t)
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(stub),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(stub),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Head:      "feature",
 		Fill:      true,
 	}
@@ -442,26 +446,28 @@ func TestCreateFillUnknownBaseErrors(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "has no main branch configured; specify --base") {
 		t.Fatalf("err = %v", err)
 	}
-	if len(stub.Interactive) != 0 {
-		t.Errorf("should not push before failing: %v", stub.Interactive)
+	if len(stub.Interactive()) != 0 {
+		t.Errorf("should not push before failing: %v", stub.InteractiveStrings())
 	}
 }
 
 func TestCreateFillExplicitBaseUsesRemoteRef(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
 
-	stub := gittest.New()
+	stub := untrackedStub(t, "my-feature")
 	stub.Register("a\x00First\x00\x1eb\x00Second\x00\x1e", nil,
 		"log", "--pretty=format:%H%x00%s%x00%b%x1e", "--end-of-options", "upstream/develop..my-feature")
 	stub.Register("", nil, "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/my-feature")
+	stub.Register("0", nil, "rev-list", "--count", "origin/my-feature..my-feature")
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(stub),
-		BaseRepo:  baseRepoFunc(upstreamBaseRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(stub),
+		BaseRepo:  cmdtest.BaseRepoFunc(upstreamBaseRemote()),
 		Base:      "develop",
 		Head:      "my-feature",
 		Fill:      true,
@@ -469,11 +475,8 @@ func TestCreateFillExplicitBaseUsesRemoteRef(t *testing.T) {
 	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
-	req := findRequest(srv, "POST", "/pullrequests")
 	var body map[string]any
-	if err := json.Unmarshal(req.Body, &body); err != nil {
-		t.Fatal(err)
-	}
+	cmdtest.RequireRequest(t, srv, "POST", "/pullrequests").DecodeJSON(t, &body)
 	if body["title"] != "my feature" {
 		t.Errorf("title = %v", body["title"])
 	}
@@ -483,18 +486,15 @@ func TestCreateFillExplicitBaseUsesRemoteRef(t *testing.T) {
 }
 
 func TestCreateFlagParsing(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 
 	var captured *CreateOptions
 	cmd := NewCmdCreate(f, func(o *CreateOptions) error {
 		captured = o
 		return nil
 	})
-	cmd.SetArgs([]string{"-t", "Hi", "-b", "Body", "-B", "main", "-H", "feature", "--draft", "-r", "bob,cara", "--close-source-branch", "--push"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	if err := cmd.Execute(); err != nil {
+	if _, _, err := cmdtest.RunCommand(t, cmd, "-t", "Hi", "-b", "Body", "-B", "main", "-H", "feature", "--draft", "-r", "bob,cara", "--close-source-branch", "--push"); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if captured.Title != "Hi" || captured.Body != "Body" || captured.Base != "main" || captured.Head != "feature" {
@@ -509,53 +509,39 @@ func TestCreateFlagParsing(t *testing.T) {
 }
 
 func TestCreateBodyFileConflict(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 	cmd := NewCmdCreate(f, func(o *CreateOptions) error { return nil })
-	cmd.SetArgs([]string{"-b", "x", "-F", "file"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	err := cmd.Execute()
-	var fe *cmdutil.FlagError
-	if err == nil || !errors.As(err, &fe) {
-		t.Fatalf("expected FlagError, got %v", err)
-	}
+	_, _, err := cmdtest.RunCommand(t, cmd, "-b", "x", "-F", "file")
+	cmdtest.AssertFlagError(t, err, "")
 }
 
 func TestCreateEmptyBodyWithBodyFileConflict(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 	cmd := NewCmdCreate(f, func(o *CreateOptions) error { return nil })
-	cmd.SetArgs([]string{"--body", "", "-F", "file"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	var fe *cmdutil.FlagError
-	if err := cmd.Execute(); !errors.As(err, &fe) {
-		t.Fatalf("expected FlagError, got %v", err)
-	}
+	_, _, err := cmdtest.RunCommand(t, cmd, "--body", "", "-F", "file")
+	cmdtest.AssertFlagError(t, err, "")
 }
 
 func TestCreateRejectsPositionalArgs(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 	cmd := NewCmdCreate(f, func(o *CreateOptions) error { return nil })
-	cmd.SetArgs([]string{"My", "title"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	var fe *cmdutil.FlagError
-	if err := cmd.Execute(); !errors.As(err, &fe) {
-		t.Fatalf("expected FlagError, got %v", err)
-	}
+	_, _, err := cmdtest.RunCommand(t, cmd, "My", "title")
+	cmdtest.AssertFlagError(t, err, "")
 }
 
 // Both answers are available on stdin at once; the push confirmation must not
 // swallow the title line.
 func TestCreatePipedPromptsShareStdin(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
 
-	stub := gittest.New()
+	stub := untrackedStub(t, "feature")
 	stub.Register("", gittest.Exit(2), "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/feature")
+	stub.Expect("push", "-u", "--end-of-options", "origin", "feature")
 
 	ios, in, _, errOut := cmdutil.TestIOStreams()
 	ios.SetStdinTTY(true)
@@ -563,9 +549,9 @@ func TestCreatePipedPromptsShareStdin(t *testing.T) {
 
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(stub),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(stub),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Head:      "feature",
 	}
 	if err := createRun(t.Context(), opts); err != nil {
@@ -575,14 +561,8 @@ func TestCreatePipedPromptsShareStdin(t *testing.T) {
 	if !strings.Contains(errOut.String(), "Push branch feature to origin? [Y/n] Title: ") {
 		t.Errorf("prompts = %q", errOut.String())
 	}
-	req := findRequest(srv, "POST", "/pullrequests")
-	if req == nil {
-		t.Fatal("no create request")
-	}
 	var body map[string]any
-	if err := json.Unmarshal(req.Body, &body); err != nil {
-		t.Fatal(err)
-	}
+	cmdtest.RequireRequest(t, srv, "POST", "/pullrequests").DecodeJSON(t, &body)
 	if body["title"] != "Piped title" {
 		t.Errorf("title = %v", body["title"])
 	}

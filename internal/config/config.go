@@ -43,6 +43,32 @@ type HostConfig struct {
 // serialised as a plain host -> HostConfig mapping.
 type Config struct {
 	Hosts map[string]*HostConfig
+
+	// getenv looks up the BH_TOKEN/BH_EMAIL overrides; nil means os.Getenv.
+	getenv func(string) string
+	// save replaces writing hosts.yml in Save when non-nil.
+	save func(*Config) error
+}
+
+// NewInMemory returns an empty configuration that never touches the file
+// system or the process environment, for use in tests. Save calls save
+// (which may be nil) instead of writing hosts.yml, and the BH_TOKEN and
+// BH_EMAIL overrides are looked up with getenv (nil means unset).
+func NewInMemory(getenv func(string) string, save func(*Config) error) *Config {
+	if getenv == nil {
+		getenv = func(string) string { return "" }
+	}
+	if save == nil {
+		save = func(*Config) error { return nil }
+	}
+	return &Config{Hosts: map[string]*HostConfig{}, getenv: getenv, save: save}
+}
+
+func (c *Config) lookupEnv(key string) string {
+	if c.getenv != nil {
+		return c.getenv(key)
+	}
+	return os.Getenv(key)
 }
 
 // Dir returns the directory where bh stores its configuration.
@@ -108,7 +134,11 @@ func Load() (*Config, error) {
 // file. The config directory is created with 0700 permissions and the hosts
 // file always ends up with 0600 permissions, even if it previously existed
 // with looser ones. If the hosts file is a symlink, its target is replaced.
+// A configuration from NewInMemory is handed to its save function instead.
 func (c *Config) Save() error {
+	if c.save != nil {
+		return c.save(c)
+	}
 	path, err := hostsPath()
 	if err != nil {
 		return err
@@ -226,7 +256,7 @@ func (s TokenSource) String() string {
 // overrides any stored token. The source is TokenSourceNone when no token is
 // available.
 func (c *Config) Token(host string) (string, TokenSource) {
-	if env := os.Getenv(EnvToken); env != "" {
+	if env := c.lookupEnv(EnvToken); env != "" {
 		return env, TokenSourceEnv
 	}
 	if hc := c.Host(host); hc != nil && hc.Token != "" {
@@ -241,7 +271,7 @@ func (c *Config) Token(host string) (string, TokenSource) {
 // email is returned.
 func (c *Config) Email(host string) string {
 	if _, source := c.Token(host); source == TokenSourceEnv {
-		return os.Getenv(EnvEmail)
+		return c.lookupEnv(EnvEmail)
 	}
 	if hc := c.Host(host); hc != nil {
 		return hc.Email

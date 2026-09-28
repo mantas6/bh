@@ -7,12 +7,13 @@ import (
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
+	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git/gittest"
 )
 
 func declinePR() *api.PullRequest {
-	pr := samplePR()
+	pr := cmdtest.SamplePR()
 	pr.State = "OPEN"
 	pr.Source.Branch.Name = "feature"
 	pr.Source.Repository = &api.Repository{FullName: "myws/myrepo"}
@@ -21,6 +22,7 @@ func declinePR() *api.PullRequest {
 }
 
 func TestDecline(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, declinePR())
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests/123/decline", 200, declinePR())
@@ -28,15 +30,15 @@ func TestDecline(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &DeclineOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(gittest.New()),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Arg:       "123",
 	}
 	if err := declineRun(t.Context(), opts); err != nil {
 		t.Fatalf("declineRun: %v", err)
 	}
-	if findRequest(srv, "POST", "/pullrequests/123/decline") == nil {
+	if cmdtest.FindRequest(srv, "POST", "/pullrequests/123/decline") == nil {
 		t.Fatal("no decline request")
 	}
 	if !strings.Contains(errOut.String(), "Declined pull request #123") {
@@ -45,52 +47,52 @@ func TestDecline(t *testing.T) {
 }
 
 func TestDeclineDeleteBranch(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, declinePR())
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests/123/decline", 200, declinePR())
 
-	stub := gittest.New()
-	stub.Register("feature", nil, "symbolic-ref", "--quiet", "--short", "HEAD")
+	stub := gittest.New(t)
+	stub.ExpectResponse("feature", nil, "symbolic-ref", "--quiet", "--short", "HEAD")
+	stub.Expect("checkout", "--end-of-options", "main")
+	stub.Expect("branch", "-d", "--end-of-options", "feature")
+	stub.Expect("push", "origin", "--delete", "feature")
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &DeclineOptions{
 		IO:           ios,
-		APIClient:    func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:          gitFunc(stub),
-		BaseRepo:     baseRepoFunc(originRemote()),
+		APIClient:    cmdtest.ClientFunc(srv),
+		Git:          cmdtest.GitFunc(stub),
+		BaseRepo:     cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Arg:          "123",
 		DeleteBranch: true,
 	}
 	if err := declineRun(t.Context(), opts); err != nil {
 		t.Fatalf("declineRun: %v", err)
 	}
-
-	assertCalls(t, stub.CallStrings(), []string{
-		"symbolic-ref --quiet --short HEAD",
-		"checkout --end-of-options main",
-		"branch -d --end-of-options feature",
-		"push origin --delete feature",
-	})
 }
 
 // newDeclineDeleteOpts sets up a decline --delete-branch run where the source
-// branch exists locally but `git branch -d` refuses to delete it.
+// branch exists locally but `git branch -d` refuses to delete it. A forced
+// `git branch -D` is not stubbed, so it fails the test unless registered.
 func newDeclineDeleteOpts(t *testing.T) (opts *DeclineOptions, stub *gittest.Stub, in, errOut *bytes.Buffer) {
 	t.Helper()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, declinePR())
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests/123/decline", 200, declinePR())
 
-	stub = gittest.New()
-	stub.Register("main", nil, "symbolic-ref", "--quiet", "--short", "HEAD")
-	stub.Register("", gittest.Exit(1), "branch", "-d", "--end-of-options", "feature")
+	stub = gittest.New(t)
+	stub.ExpectResponse("main", nil, "symbolic-ref", "--quiet", "--short", "HEAD")
+	stub.ExpectResponse("abc", nil, "rev-parse", "--verify", "--quiet", "refs/heads/feature")
+	stub.ExpectResponse("", gittest.Exit(1), "branch", "-d", "--end-of-options", "feature")
+	stub.Expect("push", "origin", "--delete", "feature")
 
 	ios, in, _, errOut := cmdutil.TestIOStreams()
 	opts = &DeclineOptions{
 		IO:           ios,
-		APIClient:    func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:          gitFunc(stub),
-		BaseRepo:     baseRepoFunc(originRemote()),
+		APIClient:    cmdtest.ClientFunc(srv),
+		Git:          cmdtest.GitFunc(stub),
+		BaseRepo:     cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Arg:          "123",
 		DeleteBranch: true,
 	}
@@ -98,24 +100,21 @@ func newDeclineDeleteOpts(t *testing.T) (opts *DeclineOptions, stub *gittest.Stu
 }
 
 func TestDeclineDeleteBranchUnmergedNonTTYWarns(t *testing.T) {
-	opts, stub, _, errOut := newDeclineDeleteOpts(t)
+	t.Parallel()
+	opts, _, _, errOut := newDeclineDeleteOpts(t)
 
 	if err := declineRun(t.Context(), opts); err != nil {
 		t.Fatalf("declineRun: %v", err)
 	}
-	assertCalls(t, stub.CallStrings(), []string{
-		"symbolic-ref --quiet --short HEAD",
-		"rev-parse --verify --quiet refs/heads/feature",
-		"branch -d --end-of-options feature",
-		"push origin --delete feature",
-	})
 	if !strings.Contains(errOut.String(), "Kept local branch feature because it is not fully merged") {
 		t.Errorf("stderr = %q", errOut.String())
 	}
 }
 
 func TestDeclineDeleteBranchUnmergedTTYForceConfirmed(t *testing.T) {
+	t.Parallel()
 	opts, stub, in, errOut := newDeclineDeleteOpts(t)
+	stub.Register("", nil, "branch", "-D", "--end-of-options", "feature")
 	opts.IO.SetStdinTTY(true)
 	in.WriteString("y\n")
 
@@ -139,43 +138,40 @@ func TestDeclineDeleteBranchUnmergedTTYForceConfirmed(t *testing.T) {
 }
 
 func TestDeclineDeleteBranchUnmergedTTYDeclined(t *testing.T) {
-	opts, stub, in, _ := newDeclineDeleteOpts(t)
+	t.Parallel()
+	// branch -D is not stubbed: force-deleting after answering no fails.
+	opts, _, in, _ := newDeclineDeleteOpts(t)
 	opts.IO.SetStdinTTY(true)
 	in.WriteString("n\n")
 
 	if err := declineRun(t.Context(), opts); err != nil {
 		t.Fatalf("declineRun: %v", err)
 	}
-	for _, c := range stub.CallStrings() {
-		if c == "branch -D --end-of-options feature" {
-			t.Errorf("branch force-deleted despite answering no")
-		}
-	}
 }
 
 func TestDeclineDeleteBranchForkSkipped(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	pr := declinePR()
 	pr.Source.Repository = &api.Repository{FullName: "fork/myrepo"}
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, pr)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests/123/decline", 200, pr)
 
-	stub := gittest.New()
-	stub.FailUnstubbed = true
+	stub := gittest.New(t)
 
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &DeclineOptions{
 		IO:           ios,
-		APIClient:    func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:          gitFunc(stub),
-		BaseRepo:     baseRepoFunc(originRemote()),
+		APIClient:    cmdtest.ClientFunc(srv),
+		Git:          cmdtest.GitFunc(stub),
+		BaseRepo:     cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Arg:          "123",
 		DeleteBranch: true,
 	}
 	if err := declineRun(t.Context(), opts); err != nil {
 		t.Fatalf("declineRun: %v", err)
 	}
-	if len(stub.Calls) != 0 {
+	if len(stub.Calls()) != 0 {
 		t.Errorf("unexpected git calls: %v", stub.CallStrings())
 	}
 	if !strings.Contains(errOut.String(), "Skipped deleting branch feature") {
@@ -184,6 +180,7 @@ func TestDeclineDeleteBranchForkSkipped(t *testing.T) {
 }
 
 func TestDeclineNotOpenErrors(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	pr := declinePR()
 	pr.State = "DECLINED"
@@ -192,9 +189,9 @@ func TestDeclineNotOpenErrors(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &DeclineOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:       gitFunc(gittest.New()),
-		BaseRepo:  baseRepoFunc(originRemote()),
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
 		Arg:       "123",
 	}
 	err := declineRun(t.Context(), opts)
@@ -204,18 +201,15 @@ func TestDeclineNotOpenErrors(t *testing.T) {
 }
 
 func TestDeclineFlagParsingAndAlias(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
+	t.Parallel()
+	f := cmdtest.NewFactory()
 
 	var captured *DeclineOptions
 	cmd := NewCmdDecline(f, func(o *DeclineOptions) error {
 		captured = o
 		return nil
 	})
-	cmd.SetArgs([]string{"123", "-d"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	if err := cmd.Execute(); err != nil {
+	if _, _, err := cmdtest.RunCommand(t, cmd, "123", "-d"); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if captured.Arg != "123" || !captured.DeleteBranch {
@@ -234,18 +228,18 @@ func TestDeclineFlagParsingAndAlias(t *testing.T) {
 }
 
 func TestDeclineDeleteBranchWithoutRemoteErrors(t *testing.T) {
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, declinePR())
 
-	stub := gittest.New()
-	stub.FailUnstubbed = true
+	stub := gittest.New(t)
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &DeclineOptions{
 		IO:           ios,
-		APIClient:    func() (*api.Client, error) { return srv.APIClient(), nil },
-		Git:          gitFunc(stub),
-		BaseRepo:     baseRepoFunc(nil),
+		APIClient:    cmdtest.ClientFunc(srv),
+		Git:          cmdtest.GitFunc(stub),
+		BaseRepo:     cmdtest.BaseRepoFunc(nil),
 		Arg:          "123",
 		DeleteBranch: true,
 	}
@@ -253,10 +247,10 @@ func TestDeclineDeleteBranchWithoutRemoteErrors(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no git remote found for myws/myrepo") {
 		t.Fatalf("err = %v", err)
 	}
-	if findRequest(srv, "POST", "/pullrequests/123/decline") != nil {
+	if cmdtest.FindRequest(srv, "POST", "/pullrequests/123/decline") != nil {
 		t.Error("PR was declined despite the error")
 	}
-	if len(stub.Calls) != 0 {
+	if len(stub.Calls()) != 0 {
 		t.Errorf("unexpected git calls: %v", stub.CallStrings())
 	}
 }

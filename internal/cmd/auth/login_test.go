@@ -1,40 +1,29 @@
 package auth
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
+	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/config"
 )
 
-// clientForServer returns an APIClientFor that points at the fake server while
-// honoring the token/email passed by the command.
-func clientForServer(srv *apitest.Server) func(token, email string) *api.Client {
-	return func(token, email string) *api.Client {
-		c := api.NewClient(srv.URL, token, email)
-		c.HTTP = srv.Server.Client()
-		return c
-	}
-}
-
 func TestLoginWithTokenSaves(t *testing.T) {
-	t.Setenv("BH_CONFIG_DIR", t.TempDir())
-	t.Setenv("BH_TOKEN", "")
-
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/user", 200, api.User{DisplayName: "Ada Lovelace", Nickname: "ada"})
 
 	ios, in, _, errOut := cmdutil.TestIOStreams()
 	in.WriteString("secret-token\n")
 
+	cfg := cmdtest.NewConfig(nil)
 	opts := &LoginOptions{
 		IO:           ios,
-		Config:       config.Load,
-		APIClientFor: clientForServer(srv),
+		Config:       cfg.Load,
+		APIClientFor: cmdtest.ClientForFunc(srv),
 		WithToken:    true,
 	}
 
@@ -45,12 +34,11 @@ func TestLoginWithTokenSaves(t *testing.T) {
 	if !strings.Contains(errOut.String(), "Logged in to bitbucket.org as Ada Lovelace") {
 		t.Errorf("unexpected output: %q", errOut.String())
 	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatalf("load: %v", err)
+	if auth := srv.LastRequest(t, "GET", "/user").Header.Get("Authorization"); auth != "Bearer secret-token" {
+		t.Errorf("Authorization = %q, want the new token", auth)
 	}
-	hc := cfg.Host(config.DefaultHost)
+
+	hc := cfg.SavedHost(config.DefaultHost)
 	if hc == nil {
 		t.Fatal("host not saved")
 	}
@@ -66,19 +54,18 @@ func TestLoginWithTokenSaves(t *testing.T) {
 }
 
 func TestLoginInvalidTokenDoesNotSave(t *testing.T) {
-	t.Setenv("BH_CONFIG_DIR", t.TempDir())
-	t.Setenv("BH_TOKEN", "")
-
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/user", 401, `{"error":{"message":"invalid credentials"}}`)
 
 	ios, in, _, _ := cmdutil.TestIOStreams()
 	in.WriteString("bad-token\n")
 
+	cfg := cmdtest.NewConfig(nil)
 	opts := &LoginOptions{
 		IO:           ios,
-		Config:       config.Load,
-		APIClientFor: clientForServer(srv),
+		Config:       cfg.Load,
+		APIClientFor: cmdtest.ClientForFunc(srv),
 		WithToken:    true,
 	}
 
@@ -89,22 +76,36 @@ func TestLoginInvalidTokenDoesNotSave(t *testing.T) {
 	if !strings.Contains(err.Error(), "invalid token: invalid credentials") {
 		t.Errorf("error = %q", err.Error())
 	}
+	if n := cfg.Saves(); n != 0 {
+		t.Errorf("config saved %d times, want none", n)
+	}
+}
 
-	cfg, _ := config.Load()
-	if cfg.Host(config.DefaultHost) != nil {
-		t.Error("host should not have been saved")
+func TestLoginEmptyTokenOnStdin(t *testing.T) {
+	t.Parallel()
+	ios, in, _, _ := cmdutil.TestIOStreams()
+	in.WriteString("  \n")
+
+	cfg := cmdtest.NewConfig(nil)
+	opts := &LoginOptions{IO: ios, Config: cfg.Load, WithToken: true}
+
+	err := loginRun(t.Context(), opts)
+	if err == nil || !strings.Contains(err.Error(), "a token must be provided on standard input") {
+		t.Fatalf("err = %v", err)
+	}
+	if cfg.Saves() != 0 {
+		t.Error("config should not be saved")
 	}
 }
 
 func TestLoginNonTTYWithoutToken(t *testing.T) {
-	t.Setenv("BH_CONFIG_DIR", t.TempDir())
-
+	t.Parallel()
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	ios.SetStdinTTY(false)
 
 	opts := &LoginOptions{
 		IO:     ios,
-		Config: config.Load,
+		Config: cmdtest.NewConfig(nil).Load,
 	}
 
 	err := loginRun(t.Context(), opts)
@@ -117,9 +118,7 @@ func TestLoginNonTTYWithoutToken(t *testing.T) {
 }
 
 func TestLoginInteractiveBasic(t *testing.T) {
-	t.Setenv("BH_CONFIG_DIR", t.TempDir())
-	t.Setenv("BH_TOKEN", "")
-
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/user", 200, api.User{DisplayName: "Grace"})
 
@@ -128,10 +127,11 @@ func TestLoginInteractiveBasic(t *testing.T) {
 	// Email is read as a plain line from stdin.
 	in.WriteString("grace@example.com\n")
 
+	cfg := cmdtest.NewConfig(nil)
 	opts := &LoginOptions{
 		IO:           ios,
-		Config:       config.Load,
-		APIClientFor: clientForServer(srv),
+		Config:       cfg.Load,
+		APIClientFor: cmdtest.ClientForFunc(srv),
 		ReadPassword: func() (string, error) { return "interactive-token", nil },
 	}
 
@@ -143,8 +143,7 @@ func TestLoginInteractiveBasic(t *testing.T) {
 		t.Errorf("instructions not printed: %q", errOut.String())
 	}
 
-	cfg, _ := config.Load()
-	hc := cfg.Host(config.DefaultHost)
+	hc := cfg.SavedHost(config.DefaultHost)
 	if hc == nil {
 		t.Fatal("host not saved")
 	}
@@ -157,19 +156,18 @@ func TestLoginInteractiveBasic(t *testing.T) {
 }
 
 func TestLoginWarnsOnBHToken(t *testing.T) {
-	t.Setenv("BH_CONFIG_DIR", t.TempDir())
-	t.Setenv("BH_TOKEN", "env-token")
-
+	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/user", 200, api.User{DisplayName: "Ada"})
 
 	ios, in, _, errOut := cmdutil.TestIOStreams()
 	in.WriteString("stored-token\n")
 
+	cfg := cmdtest.NewConfig(map[string]string{config.EnvToken: "env-token"})
 	opts := &LoginOptions{
 		IO:           ios,
-		Config:       config.Load,
-		APIClientFor: clientForServer(srv),
+		Config:       cfg.Load,
+		APIClientFor: cmdtest.ClientForFunc(srv),
 		WithToken:    true,
 	}
 
@@ -179,22 +177,19 @@ func TestLoginWarnsOnBHToken(t *testing.T) {
 	if !strings.Contains(errOut.String(), "BH_TOKEN environment variable is set") {
 		t.Errorf("expected BH_TOKEN warning, got %q", errOut.String())
 	}
+	if hc := cfg.SavedHost(config.DefaultHost); hc == nil || hc.Token != "stored-token" {
+		t.Errorf("saved host = %+v, want the token from stdin", hc)
+	}
 }
 
 func TestNewCmdLoginFlagParsing(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
-
+	t.Parallel()
 	var captured *LoginOptions
-	cmd := NewCmdLogin(f, func(o *LoginOptions) error {
+	cmd := NewCmdLogin(cmdtest.NewFactory(), func(o *LoginOptions) error {
 		captured = o
 		return nil
 	})
-	cmd.SetArgs([]string{"--with-token", "--email", "user@example.com"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-
-	if err := cmd.Execute(); err != nil {
+	if _, _, err := cmdtest.RunCommand(t, cmd, "--with-token", "--email", "user@example.com"); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if captured == nil {
@@ -212,18 +207,13 @@ func TestNewCmdLoginFlagParsing(t *testing.T) {
 }
 
 func TestNewCmdLoginDefaultReadPassword(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
-
+	t.Parallel()
 	var captured *LoginOptions
-	cmd := NewCmdLogin(f, func(o *LoginOptions) error {
+	cmd := NewCmdLogin(cmdtest.NewFactory(), func(o *LoginOptions) error {
 		captured = o
 		return nil
 	})
-	cmd.SetArgs([]string{})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	if err := cmd.Execute(); err != nil {
+	if _, _, err := cmdtest.RunCommand(t, cmd); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	if captured.ReadPassword == nil {
@@ -236,14 +226,8 @@ func TestNewCmdLoginDefaultReadPassword(t *testing.T) {
 }
 
 func TestNewCmdLoginRejectsArgs(t *testing.T) {
-	ios, _, _, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios}
-	cmd := NewCmdLogin(f, func(*LoginOptions) error { return nil })
-	cmd.SetArgs([]string{"token"})
-	cmd.SetOut(ios.Out)
-	cmd.SetErr(ios.ErrOut)
-	var fe *cmdutil.FlagError
-	if err := cmd.Execute(); !errors.As(err, &fe) {
-		t.Fatalf("expected FlagError, got %v", err)
-	}
+	t.Parallel()
+	cmd := NewCmdLogin(cmdtest.NewFactory(), func(*LoginOptions) error { return nil })
+	_, _, err := cmdtest.RunCommand(t, cmd, "token")
+	cmdtest.AssertFlagError(t, err, `unknown argument "token"`)
 }

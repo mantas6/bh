@@ -15,13 +15,14 @@ import (
 )
 
 func TestRemotesParsing(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	out := "origin\tgit@bitbucket.org:ws/repo.git (fetch)\n" +
 		"origin\tgit@bitbucket.org:ws/repo.git (push)\n" +
 		"upstream\thttps://bitbucket.org/ups/repo.git (fetch)\n" +
 		"upstream\thttps://bitbucket.org/ups/repo.git (push)\n"
 
-	s := gittest.New().Register(out, nil, "remote", "-v")
+	s := gittest.New(t).Register(out, nil, "remote", "-v")
 	remotes, err := git.Remotes(ctx, s)
 	if err != nil {
 		t.Fatal(err)
@@ -37,9 +38,10 @@ func TestRemotesParsing(t *testing.T) {
 }
 
 func TestRemotesParsingDistinctPushURL(t *testing.T) {
+	t.Parallel()
 	out := "origin\thttps://bitbucket.org/ws/repo.git (fetch)\n" +
 		"origin\tgit@bitbucket.org:ws/repo.git (push)\n"
-	s := gittest.New().Register(out, nil, "remote", "-v")
+	s := gittest.New(t).Register(out, nil, "remote", "-v")
 	remotes, err := git.Remotes(t.Context(), s)
 	if err != nil {
 		t.Fatal(err)
@@ -56,9 +58,10 @@ func TestRemotesParsingDistinctPushURL(t *testing.T) {
 }
 
 func TestCurrentBranch(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 
-	s := gittest.New().Register("main\n", nil, "symbolic-ref", "--quiet", "--short", "HEAD")
+	s := gittest.New(t).Register("main\n", nil, "symbolic-ref", "--quiet", "--short", "HEAD")
 	branch, err := git.CurrentBranch(ctx, s)
 	if err != nil {
 		t.Fatal(err)
@@ -69,9 +72,10 @@ func TestCurrentBranch(t *testing.T) {
 }
 
 func TestCurrentBranchDetached(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 
-	s := gittest.New().Register("", gittest.Exit(1), "symbolic-ref", "--quiet", "--short", "HEAD")
+	s := gittest.New(t).Register("", gittest.Exit(1), "symbolic-ref", "--quiet", "--short", "HEAD")
 	_, err := git.CurrentBranch(ctx, s)
 	if !errors.Is(err, git.ErrNotOnBranch) {
 		t.Fatalf("err = %v, want ErrNotOnBranch", err)
@@ -79,9 +83,10 @@ func TestCurrentBranchDetached(t *testing.T) {
 }
 
 func TestBranchUpstream(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 
-	s := gittest.New().
+	s := gittest.New(t).
 		Register("origin\n", nil, "config", "--get", "branch.feature.remote").
 		Register("refs/heads/feature\n", nil, "config", "--get", "branch.feature.merge")
 
@@ -98,10 +103,11 @@ func TestBranchUpstream(t *testing.T) {
 }
 
 func TestBranchUpstreamUnset(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 
 	// git config exits 1 when a key is unset -> empty string, no error.
-	s := gittest.New().
+	s := gittest.New(t).
 		Register("", gittest.Exit(1), "config", "--get", "branch.feature.remote").
 		Register("", gittest.Exit(1), "config", "--get", "branch.feature.merge")
 
@@ -115,8 +121,9 @@ func TestBranchUpstreamUnset(t *testing.T) {
 }
 
 func TestGetConfigUnset(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	s := gittest.New().Register("", gittest.Exit(1), "config", "--get", "some.key")
+	s := gittest.New(t).Register("", gittest.Exit(1), "config", "--get", "some.key")
 	v, err := git.GetConfig(ctx, s, "some.key")
 	if err != nil {
 		t.Fatal(err)
@@ -127,8 +134,9 @@ func TestGetConfigUnset(t *testing.T) {
 }
 
 func TestGetConfigError(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	s := gittest.New().Register("", &git.Error{ExitCode: 2, Stderr: "boom"}, "config", "--get", "some.key")
+	s := gittest.New(t).Register("", &git.Error{ExitCode: 2, Stderr: "boom"}, "config", "--get", "some.key")
 	_, err := git.GetConfig(ctx, s, "some.key")
 	if err == nil {
 		t.Fatal("expected error for non-1 exit code")
@@ -136,6 +144,7 @@ func TestGetConfigError(t *testing.T) {
 }
 
 func TestHasLocalBranch(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	argv := []string{"rev-parse", "--verify", "--quiet", "refs/heads/feature"}
 	notRepo := &git.Error{ExitCode: 128, Stderr: "fatal: not a git repository"}
@@ -152,7 +161,8 @@ func TestHasLocalBranch(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := gittest.New().Register("", tt.err, argv...)
+			t.Parallel()
+			s := gittest.New(t).Register("", tt.err, argv...)
 			got, err := git.HasLocalBranch(ctx, s, "feature")
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tt.wantErr)
@@ -168,6 +178,7 @@ func TestHasLocalBranch(t *testing.T) {
 }
 
 func TestRemoteBranchExists(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	// The fully qualified ref must be passed so ls-remote does not suffix-match
 	// e.g. refs/heads/foo/feature.
@@ -186,8 +197,8 @@ func TestRemoteBranchExists(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := gittest.New()
-			s.FailUnstubbed = true
+			t.Parallel()
+			s := gittest.New(t)
 			s.Register("", tt.err, argv...)
 			got, err := git.RemoteBranchExists(ctx, s, "origin", "feature")
 			if !errors.Is(err, tt.wantErr) {
@@ -201,8 +212,9 @@ func TestRemoteBranchExists(t *testing.T) {
 }
 
 func TestAheadCount(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	s := gittest.New().Register("3\n", nil, "rev-list", "--count", "origin/main..feature")
+	s := gittest.New(t).Register("3\n", nil, "rev-list", "--count", "origin/main..feature")
 	n, err := git.AheadCount(ctx, s, "feature", "origin/main")
 	if err != nil {
 		t.Fatal(err)
@@ -213,9 +225,9 @@ func TestAheadCount(t *testing.T) {
 }
 
 func TestCommits(t *testing.T) {
+	t.Parallel()
 	out := "sha1\x00subject one\x00body one\x1e\n" + "sha2\x00subject two\x00\x1e\n"
-	s := gittest.New()
-	s.FailUnstubbed = true
+	s := gittest.New(t)
 	s.Register(out, nil, "log", "--pretty=format:%H%x00%s%x00%b%x1e", "--end-of-options", "origin/main..feature")
 
 	commits, err := git.Commits(t.Context(), s, "origin/main", "feature")
@@ -232,16 +244,18 @@ func TestCommits(t *testing.T) {
 }
 
 func TestCommitsEmptyBase(t *testing.T) {
-	s := gittest.New()
+	t.Parallel()
+	s := gittest.New(t)
 	if _, err := git.Commits(t.Context(), s, "", "feature"); err == nil {
 		t.Fatal("expected error for empty base")
 	}
-	if len(s.Calls) != 0 {
+	if len(s.Calls()) != 0 {
 		t.Fatalf("git calls = %v, want none", s.CallStrings())
 	}
 }
 
 func TestErrorMessage(t *testing.T) {
+	t.Parallel()
 	e := &git.Error{Args: []string{"push", "origin", "main"}, ExitCode: 1, Stderr: "denied\n"}
 	got := e.Error()
 	const want = "git push origin main: exit status 1: denied"
@@ -251,6 +265,7 @@ func TestErrorMessage(t *testing.T) {
 }
 
 func TestInteractiveArgs(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	tests := []struct {
 		name string
@@ -274,15 +289,16 @@ func TestInteractiveArgs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := gittest.New()
+			t.Parallel()
+			s := gittest.New(t).Expect(tt.want...)
 			if err := tt.run(s); err != nil {
 				t.Fatal(err)
 			}
-			if len(s.Interactive) != 1 {
-				t.Fatalf("expected 1 interactive call, got %d", len(s.Interactive))
+			if len(s.Interactive()) != 1 {
+				t.Fatalf("expected 1 interactive call, got %d", len(s.Interactive()))
 			}
-			if !reflect.DeepEqual(s.Interactive[0], tt.want) {
-				t.Fatalf("interactive args = %q, want %q", s.Interactive[0], tt.want)
+			if !reflect.DeepEqual(s.Interactive()[0], tt.want) {
+				t.Fatalf("interactive args = %q, want %q", s.Interactive()[0], tt.want)
 			}
 		})
 	}
@@ -394,6 +410,7 @@ func TestBranchExistsIntegration(t *testing.T) {
 }
 
 func TestClientRunStderrInError(t *testing.T) {
+	t.Parallel()
 	c := gitClient(t, t.TempDir())
 	mustRun(t, c, "init")
 
@@ -414,6 +431,7 @@ func TestClientRunStderrInError(t *testing.T) {
 }
 
 func TestClientRunTrimsTrailingNewline(t *testing.T) {
+	t.Parallel()
 	c := gitClient(t, t.TempDir())
 	if got := mustRun(t, c, "--version"); strings.HasSuffix(got, "\n") || !strings.HasPrefix(got, "git version") {
 		t.Fatalf("Run output = %q", got)
@@ -421,6 +439,7 @@ func TestClientRunTrimsTrailingNewline(t *testing.T) {
 }
 
 func TestClientRunContextCancelled(t *testing.T) {
+	t.Parallel()
 	c := gitClient(t, t.TempDir())
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -435,6 +454,7 @@ func TestClientRunContextCancelled(t *testing.T) {
 }
 
 func TestClientRunExecFailureIncludesArgv(t *testing.T) {
+	t.Parallel()
 	c := &git.Client{GitPath: filepath.Join(t.TempDir(), "no-such-git")}
 	_, err := c.Run(t.Context(), "status", "--short")
 	if err == nil {
