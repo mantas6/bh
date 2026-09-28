@@ -98,7 +98,7 @@ func TestPullRequestForBranch(t *testing.T) {
 	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/pullrequests", func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.Query().Get("q")
 		gotSort = r.URL.Query().Get("sort")
-		w.Write([]byte(`{"values":[{"id":7,"state":"OPEN"}]}`))
+		_, _ = w.Write([]byte(`{"values":[{"id":7,"state":"OPEN"}]}`))
 	})
 	c := srv.APIClient()
 	pr, err := c.PullRequestForBranch(t.Context(), "ws/repo", "feature/x")
@@ -122,7 +122,7 @@ func TestPullRequestForBranchEscapesQuery(t *testing.T) {
 	var gotQuery string
 	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/pullrequests", func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.Query().Get("q")
-		w.Write([]byte(`{"values":[{"id":7,"state":"OPEN"}]}`))
+		_, _ = w.Write([]byte(`{"values":[{"id":7,"state":"OPEN"}]}`))
 	})
 	c := srv.APIClient()
 	if _, err := c.PullRequestForBranch(t.Context(), "ws/repo", `x" OR state="MERGED`); err != nil {
@@ -182,7 +182,7 @@ func TestListPullRequestsState(t *testing.T) {
 	var states []string
 	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/pullrequests", func(w http.ResponseWriter, r *http.Request) {
 		states = r.URL.Query()["state"]
-		w.Write([]byte(`{"values":[]}`))
+		_, _ = w.Write([]byte(`{"values":[]}`))
 	})
 	c := srv.APIClient()
 	if _, err := c.ListPullRequests(t.Context(), "ws/repo", api.ListPROptions{

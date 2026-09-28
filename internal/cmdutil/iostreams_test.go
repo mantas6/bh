@@ -101,7 +101,7 @@ func TestStdinSharedWithPrompter(t *testing.T) {
 	if string(rest) != "rest of\nthe body\n" {
 		t.Errorf("remaining stdin = %q; input buffered by the prompter was lost", rest)
 	}
-	if ios.Prompter() != ios.Prompter() {
+	if p1, p2 := ios.Prompter(), ios.Prompter(); p1 != p2 {
 		t.Error("Prompter() should return a shared instance")
 	}
 }

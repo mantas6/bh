@@ -54,7 +54,7 @@ func New(t testing.TB) *Server {
 		t:   t,
 	}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.serve))
-	t.Cleanup(s.Server.Close)
+	t.Cleanup(s.Close)
 	return s
 }
 
@@ -140,8 +140,8 @@ func (s *Server) HandleFunc(method, path string, h http.HandlerFunc) {
 // a dummy Bearer token. Retry backoff and merge polling do not sleep (but
 // still observe context cancellation), and polling is capped at 5 attempts.
 func (s *Server) APIClient() *api.Client {
-	c := api.NewClient(s.Server.URL, "t", "")
-	c.HTTP = s.Server.Client()
+	c := api.NewClient(s.URL, "t", "")
+	c.HTTP = s.Client()
 	c.MaxPollAttempts = 5
 	c.Sleep = NoSleep
 	return c

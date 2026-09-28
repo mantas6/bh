@@ -35,7 +35,7 @@ func New(version string) *cmdutil.Factory {
 	f := &cmdutil.Factory{
 		IOStreams: ios,
 		Version:   version,
-		Browser:   browser.New(),
+		Browser:   browser.New(ios.ErrOut),
 		Config:    sync.OnceValues(config.Load),
 	}
 

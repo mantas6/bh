@@ -24,8 +24,14 @@ Or build from source:
 ```sh
 git clone https://github.com/mantas6/bh
 cd bh
-go build -o bh ./cmd/bh
+make build   # static binary ./bh with the version from `git describe`
+./bh version
 ```
+
+A plain `go build -o bh ./cmd/bh` also works; the version then falls back to
+the module build info (or `dev`). Other targets: `make test`, `make race`,
+`make lint` (requires `golangci-lint` v2), `make vet`, `make fmt-check` and
+`make clean`.
 
 ## Authentication
 
@@ -180,8 +186,18 @@ permissions on an existing file.
 | `BH_REPO` | Default repository (`ws/repo`) when no `-R` flag is given |
 | `BH_CONFIG_DIR` | Override the configuration directory |
 | `XDG_CONFIG_HOME` | Base config directory when `BH_CONFIG_DIR` is unset |
-| `BROWSER` | Command used to open URLs for `--web` |
+| `BROWSER` | Command used to open URLs for `--web` (see below) |
 | `NO_COLOR` | Disable ANSI color output when set |
+
+`BROWSER` is split into words with shell-style quoting, so paths containing
+spaces can be single- or double-quoted (or backslash-escaped). If any word
+contains `%s` it is replaced with the URL; otherwise the URL is appended as the
+last argument:
+
+```sh
+export BROWSER="'/opt/My Browser/browser' --new-tab"
+export BROWSER='firefox --new-window %s'
+```
 
 Color is emitted only when standard output is a terminal, `NO_COLOR` is unset,
 and `TERM` is not `dumb`.

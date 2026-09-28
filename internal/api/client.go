@@ -236,7 +236,7 @@ func (c *Client) do(ctx context.Context, method, u string, payload []byte, out a
 	if err != nil {
 		return 0, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return resp.StatusCode, resp.Header, parseHTTPError(resp, method, u)

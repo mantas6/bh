@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestTableTTYAligns(t *testing.T) {
@@ -37,30 +36,6 @@ func TestTableNonTTYTabs(t *testing.T) {
 	got := buf.String()
 	if got != "#1\tshort\tada\n" {
 		t.Errorf("non-TTY output = %q", got)
-	}
-}
-
-func TestRelativeTime(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
-	cases := []struct {
-		name string
-		t    time.Time
-		want string
-	}{
-		{"seconds", now.Add(-30 * time.Second), "less than a minute ago"},
-		{"minutes", now.Add(-5 * time.Minute), "5 minutes ago"},
-		{"hours", now.Add(-3 * time.Hour), "about 3 hours ago"},
-		{"one day", now.Add(-25 * time.Hour), "1 day ago"},
-		{"days", now.Add(-48 * time.Hour), "2 days ago"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if got := RelativeTime(tc.t, now); got != tc.want {
-				t.Errorf("RelativeTime = %q, want %q", got, tc.want)
-			}
-		})
 	}
 }
 

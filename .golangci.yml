@@ -1,0 +1,39 @@
+version: "2"
+
+run:
+  tests: true
+
+linters:
+  # standard = errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  enable:
+    - bodyclose
+    - gocritic
+    - noctx
+    - revive
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Print
+        - fmt.Printf
+        - fmt.Println
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+        - shadow
+    staticcheck:
+      checks:
+        - all
+    revive:
+      rules:
+        - name: var-naming
+  exclusions:
+    generated: lax
+
+formatters:
+  enable:
+    - gofmt
