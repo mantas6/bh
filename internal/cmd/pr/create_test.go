@@ -45,7 +45,7 @@ func TestCreateBodyShape(t *testing.T) {
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:                ios,
-		ApiClient:         func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient:         func() (*api.Client, error) { return srv.Client(), nil },
 		Git:               gitFunc(gittest.New()),
 		BaseRepo:          baseRepoFunc(originRemote()),
 		Now:               fixedNow,
@@ -108,7 +108,7 @@ func TestCreateAutoPushTTYYes(t *testing.T) {
 
 	opts := &CreateOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Now:       fixedNow,
@@ -134,7 +134,7 @@ func TestCreateNonTTYNoPushErrors(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Now:       fixedNow,
@@ -161,7 +161,7 @@ func TestCreateNonTTYWithPush(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Now:       fixedNow,
@@ -190,7 +190,7 @@ func TestCreateUpstreamAheadWarns(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Now:       fixedNow,
@@ -225,7 +225,7 @@ func TestCreateFillSingleCommit(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Now:       fixedNow,
@@ -259,7 +259,7 @@ func TestCreateWeb(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Browser:   fb,
@@ -283,7 +283,7 @@ func TestCreateNonTTYRequiresTitle(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Now:       fixedNow,
@@ -333,5 +333,72 @@ func TestCreateBodyFileConflict(t *testing.T) {
 	var fe *cmdutil.FlagError
 	if err == nil || !errors.As(err, &fe) {
 		t.Fatalf("expected FlagError, got %v", err)
+	}
+}
+
+func TestCreateEmptyBodyWithBodyFileConflict(t *testing.T) {
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	f := &cmdutil.Factory{IOStreams: ios}
+	cmd := NewCmdCreate(f, func(o *CreateOptions) error { return nil })
+	cmd.SetArgs([]string{"--body", "", "-F", "file"})
+	cmd.SetOut(ios.Out)
+	cmd.SetErr(ios.ErrOut)
+	var fe *cmdutil.FlagError
+	if err := cmd.Execute(); !errors.As(err, &fe) {
+		t.Fatalf("expected FlagError, got %v", err)
+	}
+}
+
+func TestCreateRejectsPositionalArgs(t *testing.T) {
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	f := &cmdutil.Factory{IOStreams: ios}
+	cmd := NewCmdCreate(f, func(o *CreateOptions) error { return nil })
+	cmd.SetArgs([]string{"My", "title"})
+	cmd.SetOut(ios.Out)
+	cmd.SetErr(ios.ErrOut)
+	var fe *cmdutil.FlagError
+	if err := cmd.Execute(); !errors.As(err, &fe) {
+		t.Fatalf("expected FlagError, got %v", err)
+	}
+}
+
+// Both answers are available on stdin at once; the push confirmation must not
+// swallow the title line.
+func TestCreatePipedPromptsShareStdin(t *testing.T) {
+	srv := apitest.New(t)
+	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+
+	stub := gittest.New()
+	stub.Register("", gittest.Exit(2), "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/feature")
+
+	ios, in, _, errOut := cmdutil.TestIOStreams()
+	ios.SetStdinTTY(true)
+	in.WriteString("y\nPiped title\n")
+
+	opts := &CreateOptions{
+		IO:        ios,
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		Git:       gitFunc(stub),
+		BaseRepo:  baseRepoFunc(originRemote()),
+		Now:       fixedNow,
+		Head:      "feature",
+	}
+	if err := createRun(opts); err != nil {
+		t.Fatalf("createRun: %v", err)
+	}
+
+	if !strings.Contains(errOut.String(), "Push branch feature to origin? [Y/n] Title: ") {
+		t.Errorf("prompts = %q", errOut.String())
+	}
+	req := findRequest(srv, "POST", "/pullrequests")
+	if req == nil {
+		t.Fatal("no create request")
+	}
+	var body map[string]any
+	if err := json.Unmarshal(req.Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["title"] != "Piped title" {
+		t.Errorf("title = %v", body["title"])
 	}
 }

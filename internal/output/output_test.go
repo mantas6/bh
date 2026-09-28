@@ -79,17 +79,3 @@ func TestColorSchemeEnabled(t *testing.T) {
 		t.Errorf("MERGED should be magenta: %q", got)
 	}
 }
-
-func TestPrintJSON(t *testing.T) {
-	var buf bytes.Buffer
-	if err := PrintJSON(&buf, map[string]string{"url": "a&b"}); err != nil {
-		t.Fatalf("PrintJSON: %v", err)
-	}
-	got := buf.String()
-	if !strings.Contains(got, `"url": "a&b"`) {
-		t.Errorf("JSON should not HTML-escape: %q", got)
-	}
-	if !strings.HasSuffix(got, "}\n") {
-		t.Errorf("expected trailing newline: %q", got)
-	}
-}

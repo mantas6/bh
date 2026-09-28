@@ -17,10 +17,10 @@ import (
 // ListOptions holds the dependencies and flags for `bh pr list`.
 type ListOptions struct {
 	IO        *cmdutil.IOStreams
-	ApiClient func() (*api.Client, error)
+	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
-	Browser   browser
+	Browser   cmdutil.Browser
 	Now       func() time.Time
 
 	State  string
@@ -35,20 +35,18 @@ type ListOptions struct {
 func NewCmdList(f *cmdutil.Factory, runF func(*ListOptions) error) *cobra.Command {
 	opts := &ListOptions{
 		IO:        f.IOStreams,
-		ApiClient: f.ApiClient,
+		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
+		Browser:   f.Browser,
 		Now:       time.Now,
-	}
-	if f.Browser != nil {
-		opts.Browser = f.Browser
 	}
 
 	cmd := &cobra.Command{
 		Use:     "list",
 		Short:   "List pull requests",
 		Aliases: []string{"ls"},
-		Args:    cobra.NoArgs,
+		Args:    cmdutil.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(opts)
@@ -77,10 +75,7 @@ func listRun(opts *ListOptions) error {
 
 	if opts.Web {
 		u := fmt.Sprintf("https://bitbucket.org/%s/pull-requests/", repo.FullName())
-		if opts.IO.IsStdoutTTY() {
-			fmt.Fprintf(opts.IO.ErrOut, "Opening %s in your browser.\n", u)
-		}
-		return opts.Browser.Browse(u)
+		return cmdutil.OpenInBrowser(opts.IO, opts.Browser, u)
 	}
 
 	states, err := mapStates(opts.State)
@@ -88,7 +83,7 @@ func listRun(opts *ListOptions) error {
 		return err
 	}
 
-	client, err := opts.ApiClient()
+	client, err := opts.APIClient()
 	if err != nil {
 		return err
 	}
@@ -115,7 +110,7 @@ func listRun(opts *ListOptions) error {
 	}
 
 	if opts.JSON {
-		return output.PrintJSON(opts.IO.Out, prs)
+		return cmdutil.PrintJSON(opts.IO.Out, prs)
 	}
 
 	isTTY := opts.IO.IsStdoutTTY()
@@ -135,7 +130,7 @@ func listRun(opts *ListOptions) error {
 	if now == nil {
 		now = time.Now
 	}
-	cs := output.NewColorScheme(opts.IO.ColorEnabled())
+	cs := opts.IO.ColorScheme()
 
 	table := output.NewTable(opts.IO.Out, isTTY)
 	for i := range prs {

@@ -1,10 +1,14 @@
-package cmdutil
+package factory
 
 import (
+	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 
+	"github.com/mantas6/bh/internal/api"
+	"github.com/mantas6/bh/internal/config"
 	"github.com/mantas6/bh/internal/git"
 )
 
@@ -41,7 +45,7 @@ func TestBaseRepoOverrideWithoutGit(t *testing.T) {
 	t.Setenv("PATH", "")
 	t.Setenv("BH_REPO", "")
 
-	f := NewFactory("test")
+	f := New("test")
 	f.RepoOverride = "ws/repo"
 
 	repo, rr, err := f.BaseRepo()
@@ -85,7 +89,7 @@ func TestBaseRepoOutsideCheckout(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("BH_REPO", tt.env)
-			f := NewFactory("test")
+			f := New("test")
 			f.RepoOverride = tt.flag
 
 			repo, rr, err := f.BaseRepo()
@@ -99,5 +103,87 @@ func TestBaseRepoOutsideCheckout(t *testing.T) {
 				t.Fatalf("resolved remote = %+v, want nil", rr)
 			}
 		})
+	}
+}
+
+func TestConfigIsCached(t *testing.T) {
+	t.Setenv("BH_CONFIG_DIR", t.TempDir())
+
+	f := New("test")
+	a, err := f.Config()
+	if err != nil {
+		t.Fatalf("Config: %v", err)
+	}
+	b, err := f.Config()
+	if err != nil {
+		t.Fatalf("Config: %v", err)
+	}
+	if a != b {
+		t.Fatal("Config() returned different instances; want a cached config")
+	}
+}
+
+func TestAPIClientUsesFactoryConfig(t *testing.T) {
+	t.Setenv("BH_TOKEN", "")
+	// Point the on-disk config somewhere empty: the client must come from
+	// f.Config, not from a fresh config.Load.
+	t.Setenv("BH_CONFIG_DIR", t.TempDir())
+
+	f := New("1.2.3")
+	calls := 0
+	f.Config = func() (*config.Config, error) {
+		calls++
+		cfg := &config.Config{}
+		cfg.SetHost(config.DefaultHost, &config.HostConfig{Token: "tok", Email: "ada@example.com"})
+		return cfg, nil
+	}
+
+	client, err := f.APIClient()
+	if err != nil {
+		t.Fatalf("APIClient: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("Config called %d times, want 1", calls)
+	}
+	if client.Token != "tok" || client.Email != "ada@example.com" {
+		t.Errorf("client credentials = %q/%q", client.Token, client.Email)
+	}
+	if client.UserAgent != "bh/1.2.3" {
+		t.Errorf("UserAgent = %q", client.UserAgent)
+	}
+	if client.BaseURL != api.DefaultBaseURL {
+		t.Errorf("BaseURL = %q", client.BaseURL)
+	}
+}
+
+func TestAPIClientNoToken(t *testing.T) {
+	t.Setenv("BH_TOKEN", "")
+	t.Setenv("BH_CONFIG_DIR", t.TempDir())
+
+	f := New("test")
+	if _, err := f.APIClient(); !errors.Is(err, api.ErrNoToken) {
+		t.Fatalf("APIClient error = %v, want api.ErrNoToken", err)
+	}
+}
+
+func TestAPIClientFor(t *testing.T) {
+	f := New("1.2.3")
+	c := f.APIClientFor("tok", "")
+	if c.Token != "tok" || c.Email != "" {
+		t.Errorf("credentials = %q/%q", c.Token, c.Email)
+	}
+	if c.UserAgent != "bh/1.2.3" {
+		t.Errorf("UserAgent = %q", c.UserAgent)
+	}
+}
+
+func TestNewIOStreams(t *testing.T) {
+	f := New("test")
+	ios := f.IOStreams
+	if ios.In != os.Stdin || ios.Out != os.Stdout || ios.ErrOut != os.Stderr {
+		t.Fatal("IOStreams not wired to the process streams")
+	}
+	if _, ok := ios.StdinFd(); !ok {
+		t.Error("StdinFd unavailable for os.Stdin")
 	}
 }

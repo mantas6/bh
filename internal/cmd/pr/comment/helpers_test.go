@@ -45,7 +45,7 @@ func baseRepoFunc() func() (git.Repo, *git.ResolvedRemote, error) {
 	}
 }
 
-// clientFunc returns an ApiClient provider bound to srv.
+// clientFunc returns an APIClient provider bound to srv.
 func clientFunc(srv *apitest.Server) func() (*api.Client, error) {
 	return func() (*api.Client, error) {
 		return srv.Client(), nil

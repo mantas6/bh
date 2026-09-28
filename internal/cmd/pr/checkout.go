@@ -15,7 +15,7 @@ import (
 // CheckoutOptions holds the dependencies and flags for `bh pr checkout`.
 type CheckoutOptions struct {
 	IO        *cmdutil.IOStreams
-	ApiClient func() (*api.Client, error)
+	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
 
@@ -29,7 +29,7 @@ type CheckoutOptions struct {
 func NewCmdCheckout(f *cmdutil.Factory, runF func(*CheckoutOptions) error) *cobra.Command {
 	opts := &CheckoutOptions{
 		IO:        f.IOStreams,
-		ApiClient: f.ApiClient,
+		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
 	}
@@ -58,8 +58,9 @@ func NewCmdCheckout(f *cmdutil.Factory, runF func(*CheckoutOptions) error) *cobr
 		Args: cmdutil.ExactArgs(1, "a pull request number, URL, or branch is required"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Arg = args[0]
-			if opts.Branch != "" && opts.Detach {
-				return cmdutil.FlagErrorf("--branch and --detach are mutually exclusive")
+			if err := cmdutil.MutuallyExclusive("--branch and --detach are mutually exclusive",
+				cmd.Flags().Changed("branch"), opts.Detach); err != nil {
+				return err
 			}
 			if runF != nil {
 				return runF(opts)
@@ -83,7 +84,7 @@ func checkoutRun(opts *CheckoutOptions) error {
 		return err
 	}
 
-	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
+	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}

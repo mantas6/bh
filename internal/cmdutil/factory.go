@@ -1,10 +1,11 @@
-// Package cmdutil provides shared plumbing for bh commands: IOStreams, the
-// Factory dependency container, error types, and argument validators.
+// Package cmdutil provides shared helpers for bh commands: IOStreams and
+// prompting, the Factory dependency container, error types, flag and
+// argument validators, and small output helpers. The concrete Factory is
+// wired in package internal/cmd/factory.
 package cmdutil
 
 import (
 	"github.com/mantas6/bh/internal/api"
-	"github.com/mantas6/bh/internal/browser"
 	"github.com/mantas6/bh/internal/config"
 	"github.com/mantas6/bh/internal/git"
 )
@@ -15,8 +16,6 @@ type Factory struct {
 	IOStreams *IOStreams
 	// Version is the build version string.
 	Version string
-	// Executable is the resolved path to the running binary.
-	Executable string
 
 	// Config lazily loads the configuration.
 	Config func() (*config.Config, error)
@@ -25,15 +24,19 @@ type Factory struct {
 	// use it with git.ResolveRepo and the package's high-level helpers.
 	Git func() (git.Runner, error)
 
-	// ApiClient lazily builds an authenticated Bitbucket API client. It
-	// returns api.ErrNoToken when no credentials are configured.
-	ApiClient func() (*api.Client, error)
+	// APIClient lazily builds an API client authenticated with the
+	// configured credentials. It returns api.ErrNoToken when none are set.
+	APIClient func() (*api.Client, error)
+
+	// APIClientFor builds an API client for explicit credentials, e.g. a
+	// token that has not been saved yet.
+	APIClientFor func(token, email string) *api.Client
 
 	// Browser opens URLs in the user's web browser.
-	Browser *browser.Browser
+	Browser Browser
 
-	// RepoOverride holds the value of the global -R/--repo flag; it feeds
-	// BaseRepo. The root command binds this to the persistent flag.
+	// RepoOverride holds the value of the -R/--repo flag; it feeds BaseRepo.
+	// The pr command group binds this to its persistent flag.
 	RepoOverride string
 
 	// BaseRepo resolves the base repository using the precedence

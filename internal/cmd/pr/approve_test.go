@@ -1,6 +1,7 @@
 package pr
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ func TestApprove(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &ApproveOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -44,7 +45,7 @@ func TestApproveUndo(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &ApproveOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -80,5 +81,43 @@ func TestApproveFlagParsing(t *testing.T) {
 	}
 	if captured.Arg != "123" || !captured.Undo {
 		t.Errorf("parsed = %+v", captured)
+	}
+}
+
+// Icons written to stderr follow stderr's TTY state, so `2>log` stays plain
+// even when stdout is a terminal.
+func TestApproveStderrIconUncolouredWhenRedirected(t *testing.T) {
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
+	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests/123/approve", 200, nil)
+
+	ios, _, _, errOut := cmdutil.TestIOStreams()
+	ios.SetStdoutTTY(true)
+	ios.SetStderrTTY(false)
+	opts := &ApproveOptions{
+		IO:        ios,
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		Git:       gitFunc(gittest.New()),
+		BaseRepo:  baseRepoFunc(originRemote()),
+		Arg:       "123",
+	}
+	if err := approveRun(opts); err != nil {
+		t.Fatalf("approveRun: %v", err)
+	}
+	if got := errOut.String(); strings.Contains(got, "\x1b[") || !strings.HasPrefix(got, "✓ ") {
+		t.Errorf("stderr = %q, want a plain icon", got)
+	}
+}
+
+func TestApproveTooManyArgs(t *testing.T) {
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	f := &cmdutil.Factory{IOStreams: ios}
+	cmd := NewCmdApprove(f, func(*ApproveOptions) error { return nil })
+	cmd.SetArgs([]string{"1", "2"})
+	cmd.SetOut(ios.Out)
+	cmd.SetErr(ios.ErrOut)
+	var fe *cmdutil.FlagError
+	if err := cmd.Execute(); !errors.As(err, &fe) {
+		t.Fatalf("expected FlagError, got %v", err)
 	}
 }

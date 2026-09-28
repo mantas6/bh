@@ -16,7 +16,7 @@ import (
 // EditOptions holds the dependencies and flags for `bh pr edit`.
 type EditOptions struct {
 	IO        *cmdutil.IOStreams
-	ApiClient func() (*api.Client, error)
+	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
 	Now       func() time.Time
@@ -39,7 +39,7 @@ type EditOptions struct {
 func NewCmdEdit(f *cmdutil.Factory, runF func(*EditOptions) error) *cobra.Command {
 	opts := &EditOptions{
 		IO:        f.IOStreams,
-		ApiClient: f.ApiClient,
+		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
 		Now:       time.Now,
@@ -48,18 +48,20 @@ func NewCmdEdit(f *cmdutil.Factory, runF func(*EditOptions) error) *cobra.Comman
 	cmd := &cobra.Command{
 		Use:   "edit [<number> | <url> | <branch>]",
 		Short: "Edit a pull request",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  cmdutil.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.Arg = args[0]
 			}
 			opts.titleSet = cmd.Flags().Changed("title")
 			opts.bodySet = cmd.Flags().Changed("body")
-			if opts.Draft && opts.Ready {
-				return cmdutil.FlagErrorf("--draft and --ready are mutually exclusive")
+			if err := cmdutil.MutuallyExclusive("--draft and --ready are mutually exclusive",
+				opts.Draft, opts.Ready); err != nil {
+				return err
 			}
-			if opts.Body != "" && opts.BodyFile != "" {
-				return cmdutil.FlagErrorf("specify only one of --body or --body-file")
+			if err := cmdutil.MutuallyExclusive("specify only one of --body or --body-file",
+				opts.bodySet, cmd.Flags().Changed("body-file")); err != nil {
+				return err
 			}
 			if runF != nil {
 				return runF(opts)
@@ -69,8 +71,7 @@ func NewCmdEdit(f *cmdutil.Factory, runF func(*EditOptions) error) *cobra.Comman
 	}
 
 	cmd.Flags().StringVarP(&opts.Title, "title", "t", "", "New title")
-	cmd.Flags().StringVarP(&opts.Body, "body", "b", "", "New body")
-	cmd.Flags().StringVarP(&opts.BodyFile, "body-file", "F", "", "Read body text from `file` (use \"-\" for stdin)")
+	cmdutil.AddBodyFlags(cmd, &opts.Body, &opts.BodyFile)
 	cmd.Flags().StringVarP(&opts.Base, "base", "B", "", "Change the base branch")
 	cmd.Flags().StringSliceVar(&opts.AddReviewers, "add-reviewer", nil, "Add reviewers (comma-separated)")
 	cmd.Flags().StringSliceVar(&opts.RemoveReviewers, "remove-reviewer", nil, "Remove reviewers (comma-separated)")
@@ -89,7 +90,7 @@ func editRun(opts *EditOptions) error {
 		return cmdutil.FlagErrorf("specify at least one flag to edit")
 	}
 
-	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
+	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}

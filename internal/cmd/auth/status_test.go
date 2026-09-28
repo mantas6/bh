@@ -38,7 +38,7 @@ func TestStatusLoggedInViaBHToken(t *testing.T) {
 	opts := &StatusOptions{
 		IO:           ios,
 		Config:       config.Load,
-		ApiClientFor: clientForServer(srv),
+		APIClientFor: clientForServer(srv),
 	}
 
 	if err := statusRun(opts); err != nil {
@@ -74,7 +74,7 @@ func TestStatusShowToken(t *testing.T) {
 	opts := &StatusOptions{
 		IO:           ios,
 		Config:       config.Load,
-		ApiClientFor: clientForServer(srv),
+		APIClientFor: clientForServer(srv),
 		ShowToken:    true,
 	}
 
@@ -105,7 +105,7 @@ func TestStatusInvalidToken(t *testing.T) {
 	opts := &StatusOptions{
 		IO:           ios,
 		Config:       config.Load,
-		ApiClientFor: clientForServer(srv),
+		APIClientFor: clientForServer(srv),
 	}
 
 	err := statusRun(opts)

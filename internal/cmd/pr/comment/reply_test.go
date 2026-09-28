@@ -15,7 +15,7 @@ func TestReplyBodyHasParent(t *testing.T) {
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := &ReplyOptions{
 		IO:        ios,
-		ApiClient: clientFunc(srv),
+		APIClient: clientFunc(srv),
 		Git:       gitFunc(newGitStub()),
 		BaseRepo:  baseRepoFunc(),
 		Now:       nowFunc(),

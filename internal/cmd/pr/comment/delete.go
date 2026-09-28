@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/mantas6/bh/internal/api"
@@ -17,7 +16,7 @@ import (
 // DeleteOptions holds the dependencies and flags for `bh pr comment delete`.
 type DeleteOptions struct {
 	IO        *cmdutil.IOStreams
-	ApiClient func() (*api.Client, error)
+	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
 	Now       func() time.Time
@@ -31,7 +30,7 @@ type DeleteOptions struct {
 func NewCmdDelete(f *cmdutil.Factory, runF func(*DeleteOptions) error) *cobra.Command {
 	opts := &DeleteOptions{
 		IO:        f.IOStreams,
-		ApiClient: f.ApiClient,
+		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
 		Now:       time.Now,
@@ -67,20 +66,16 @@ func deleteRun(opts *DeleteOptions) error {
 		if !opts.IO.IsStdinTTY() {
 			return errors.New("--yes required when not running interactively")
 		}
-		fmt.Fprintf(opts.IO.ErrOut, "Delete comment #%d? [y/N] ", opts.CommentID)
-		ans, err := shared.ReadLine(opts.IO.In)
+		ok, err := opts.IO.Prompter().Confirm(fmt.Sprintf("Delete comment #%d?", opts.CommentID), false)
 		if err != nil {
 			return err
 		}
-		switch strings.ToLower(strings.TrimSpace(ans)) {
-		case "y", "yes":
-			// proceed
-		default:
+		if !ok {
 			return cmdutil.ErrCancel
 		}
 	}
 
-	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
+	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
@@ -90,6 +85,6 @@ func deleteRun(opts *DeleteOptions) error {
 		return err
 	}
 
-	fmt.Fprintf(opts.IO.ErrOut, "%s Deleted comment #%d\n", shared.SuccessIcon(opts.IO), opts.CommentID)
+	fmt.Fprintf(opts.IO.ErrOut, "%s Deleted comment #%d\n", opts.IO.ErrColorScheme().SuccessIcon(), opts.CommentID)
 	return nil
 }

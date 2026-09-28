@@ -45,7 +45,7 @@ func runCheckout(t *testing.T, pr *api.PullRequest, rr *git.ResolvedRemote, stub
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CheckoutOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(rr),
 		Arg:       "123",

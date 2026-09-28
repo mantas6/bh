@@ -12,17 +12,16 @@ import (
 	"github.com/mantas6/bh/internal/cmd/pr/shared"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
-	"github.com/mantas6/bh/internal/output"
 	"github.com/spf13/cobra"
 )
 
 // CreateOptions holds the dependencies and flags for `bh pr create`.
 type CreateOptions struct {
 	IO        *cmdutil.IOStreams
-	ApiClient func() (*api.Client, error)
+	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
-	Browser   browser
+	Browser   cmdutil.Browser
 	Now       func() time.Time
 
 	Title             string
@@ -44,13 +43,11 @@ type CreateOptions struct {
 func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Command {
 	opts := &CreateOptions{
 		IO:        f.IOStreams,
-		ApiClient: f.ApiClient,
+		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
+		Browser:   f.Browser,
 		Now:       time.Now,
-	}
-	if f.Browser != nil {
-		opts.Browser = f.Browser
 	}
 
 	cmd := &cobra.Command{
@@ -77,11 +74,12 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 			# Open the create page in the browser instead
 			$ bh pr create --web
 		`),
-		Args: cobra.NoArgs,
+		Args: cmdutil.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.titleSet = cmd.Flags().Changed("title")
-			if opts.Body != "" && opts.BodyFile != "" {
-				return cmdutil.FlagErrorf("specify only one of --body or --body-file")
+			if err := cmdutil.MutuallyExclusive("specify only one of --body or --body-file",
+				cmd.Flags().Changed("body"), cmd.Flags().Changed("body-file")); err != nil {
+				return err
 			}
 			if runF != nil {
 				return runF(opts)
@@ -91,8 +89,7 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 	}
 
 	cmd.Flags().StringVarP(&opts.Title, "title", "t", "", "Title for the pull request")
-	cmd.Flags().StringVarP(&opts.Body, "body", "b", "", "Body for the pull request")
-	cmd.Flags().StringVarP(&opts.BodyFile, "body-file", "F", "", "Read body text from `file` (use \"-\" for stdin)")
+	cmdutil.AddBodyFlags(cmd, &opts.Body, &opts.BodyFile)
 	cmd.Flags().StringVarP(&opts.Base, "base", "B", "", "The branch to merge into")
 	cmd.Flags().StringVarP(&opts.Head, "head", "H", "", "The branch that contains commits (defaults to current branch)")
 	cmd.Flags().BoolVar(&opts.Draft, "draft", false, "Mark the pull request as a draft")
@@ -128,7 +125,7 @@ func createRun(opts *CreateOptions) error {
 		}
 	}
 
-	client, err := opts.ApiClient()
+	client, err := opts.APIClient()
 	if err != nil {
 		return err
 	}
@@ -158,10 +155,7 @@ func createRun(opts *CreateOptions) error {
 		if effectiveBase != "" {
 			u += "&dest=" + url.QueryEscape(effectiveBase)
 		}
-		if opts.IO.IsStdoutTTY() {
-			fmt.Fprintf(opts.IO.ErrOut, "Opening %s in your browser.\n", u)
-		}
-		return opts.Browser.Browse(u)
+		return cmdutil.OpenInBrowser(opts.IO, opts.Browser, u)
 	}
 
 	title := opts.Title
@@ -189,12 +183,10 @@ func createRun(opts *CreateOptions) error {
 
 	if title == "" {
 		if opts.IO.IsStdinTTY() {
-			fmt.Fprint(opts.IO.ErrOut, "Title: ")
-			line, err := shared.ReadLine(opts.IO.In)
+			title, err = opts.IO.Prompter().Input("Title", "")
 			if err != nil {
 				return err
 			}
-			title = strings.TrimSpace(line)
 		}
 		if title == "" {
 			return errors.New("--title (or --fill) is required when not running interactively")
@@ -256,17 +248,14 @@ func ensurePushed(ctx context.Context, opts *CreateOptions, gitRunner git.Runner
 			return git.Push(ctx, gitRunner, remote, head)
 		}
 		if opts.IO.IsStdinTTY() {
-			fmt.Fprintf(opts.IO.ErrOut, "Push branch %s to %s? [Y/n] ", head, remote)
-			ans, err := shared.ReadLine(opts.IO.In)
+			ok, err := opts.IO.Prompter().Confirm(fmt.Sprintf("Push branch %s to %s?", head, remote), true)
 			if err != nil {
 				return err
 			}
-			switch strings.ToLower(strings.TrimSpace(ans)) {
-			case "", "y", "yes":
-				return git.Push(ctx, gitRunner, remote, head)
-			default:
+			if !ok {
 				return cmdutil.ErrCancel
 			}
+			return git.Push(ctx, gitRunner, remote, head)
 		}
 		return fmt.Errorf("branch %s has not been pushed to %s; run with --push or push it first", head, remote)
 	}
@@ -285,7 +274,7 @@ func ensurePushed(ctx context.Context, opts *CreateOptions, gitRunner git.Runner
 		return err
 	}
 	if ahead > 0 {
-		cs := output.NewColorScheme(opts.IO.ColorEnabled())
+		cs := opts.IO.ErrColorScheme()
 		fmt.Fprintf(opts.IO.ErrOut, "%s local branch is %d commits ahead of %s\n", cs.WarningIcon(), ahead, upstreamRef)
 	}
 	return nil

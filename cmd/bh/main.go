@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mantas6/bh/internal/cmd/factory"
 	"github.com/mantas6/bh/internal/cmd/root"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/spf13/cobra"
@@ -19,7 +20,7 @@ func main() {
 }
 
 func run() int {
-	f := cmdutil.NewFactory(version)
+	f := factory.New(version)
 	rootCmd := root.NewCmdRoot(f)
 
 	// ExecuteC returns the command that ran (or failed) so we can build an

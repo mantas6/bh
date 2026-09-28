@@ -12,7 +12,7 @@ import (
 func newDeleteOpts(srv *apitest.Server, ios *cmdutil.IOStreams) *DeleteOptions {
 	return &DeleteOptions{
 		IO:        ios,
-		ApiClient: clientFunc(srv),
+		APIClient: clientFunc(srv),
 		Git:       gitFunc(newGitStub()),
 		BaseRepo:  baseRepoFunc(),
 		Now:       nowFunc(),

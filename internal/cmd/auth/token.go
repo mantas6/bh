@@ -24,7 +24,7 @@ func NewCmdToken(f *cmdutil.Factory, runF func(*TokenOptions) error) *cobra.Comm
 	cmd := &cobra.Command{
 		Use:   "token",
 		Short: "Print the auth token bh is configured to use",
-		Args:  cobra.NoArgs,
+		Args:  cmdutil.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(opts)

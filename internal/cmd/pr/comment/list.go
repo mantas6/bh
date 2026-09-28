@@ -18,7 +18,7 @@ import (
 // ListOptions holds the dependencies and flags for `bh pr comment list`.
 type ListOptions struct {
 	IO        *cmdutil.IOStreams
-	ApiClient func() (*api.Client, error)
+	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
 	Now       func() time.Time
@@ -33,7 +33,7 @@ type ListOptions struct {
 func NewCmdList(f *cmdutil.Factory, runF func(*ListOptions) error) *cobra.Command {
 	opts := &ListOptions{
 		IO:        f.IOStreams,
-		ApiClient: f.ApiClient,
+		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
 		Now:       time.Now,
@@ -42,7 +42,7 @@ func NewCmdList(f *cmdutil.Factory, runF func(*ListOptions) error) *cobra.Comman
 	cmd := &cobra.Command{
 		Use:   "list [<number> | <url> | <branch>]",
 		Short: "List comments on a pull request",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  cmdutil.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.Arg = args[0]
@@ -64,7 +64,7 @@ func NewCmdList(f *cmdutil.Factory, runF func(*ListOptions) error) *cobra.Comman
 func listRun(opts *ListOptions) error {
 	ctx := context.Background()
 
-	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
+	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
@@ -76,7 +76,7 @@ func listRun(opts *ListOptions) error {
 	}
 
 	if opts.JSON {
-		return output.PrintJSON(opts.IO.Out, filterComments(comments, opts.Unresolved))
+		return cmdutil.PrintJSON(opts.IO.Out, filterComments(comments, opts.Unresolved))
 	}
 
 	return printThreads(opts, pr.ID, comments)
@@ -128,7 +128,7 @@ func rootOf(c *api.Comment, byID map[int]*api.Comment) *api.Comment {
 }
 
 func printThreads(opts *ListOptions, prID int, comments []api.Comment) error {
-	cs := output.NewColorScheme(opts.IO.ColorEnabled())
+	cs := opts.IO.ColorScheme()
 	out := opts.IO.Out
 
 	byID := visibleIndex(comments)

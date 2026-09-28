@@ -37,9 +37,9 @@ type Config struct {
 	Hosts map[string]*HostConfig `yaml:"-"`
 }
 
-// ConfigDir returns the directory where bh stores its configuration.
+// Dir returns the directory where bh stores its configuration.
 // Resolution order: BH_CONFIG_DIR > $XDG_CONFIG_HOME/bh > ~/.config/bh.
-func ConfigDir() string {
+func Dir() string {
 	if dir := os.Getenv("BH_CONFIG_DIR"); dir != "" {
 		return dir
 	}
@@ -55,7 +55,7 @@ func ConfigDir() string {
 }
 
 func hostsPath() string {
-	return filepath.Join(ConfigDir(), hostsFile)
+	return filepath.Join(Dir(), hostsFile)
 }
 
 // Load reads the configuration from disk. A missing hosts file yields an
@@ -85,7 +85,7 @@ func Load() (*Config, error) {
 // Save writes the configuration to disk, creating the config directory with
 // 0700 permissions and the hosts file with 0600 permissions.
 func (c *Config) Save() error {
-	dir := ConfigDir()
+	dir := Dir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}

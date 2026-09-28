@@ -34,7 +34,7 @@ func TestMergeDefaultStrategyTTYConfirmYes(t *testing.T) {
 
 	opts := &MergeOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -71,7 +71,7 @@ func TestMergeConfirmNoCancels(t *testing.T) {
 
 	opts := &MergeOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -89,7 +89,7 @@ func TestMergeNonTTYWithoutFlagsErrors(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -108,7 +108,7 @@ func TestMergeSquashWithMessageBody(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -150,7 +150,7 @@ func TestMergeDeleteBranchLocalCleanup(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:           ios,
-		ApiClient:    func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient:    func() (*api.Client, error) { return srv.Client(), nil },
 		Git:          gitFunc(stub),
 		BaseRepo:     baseRepoFunc(originRemote()),
 		Arg:          "123",
@@ -187,7 +187,7 @@ func TestMergeNotOpenErrors(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",

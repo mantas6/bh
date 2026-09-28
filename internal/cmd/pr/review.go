@@ -14,7 +14,7 @@ import (
 // ReviewOptions holds the dependencies and flags for `bh pr review`.
 type ReviewOptions struct {
 	IO        *cmdutil.IOStreams
-	ApiClient func() (*api.Client, error)
+	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
 
@@ -30,7 +30,7 @@ type ReviewOptions struct {
 func NewCmdReview(f *cmdutil.Factory, runF func(*ReviewOptions) error) *cobra.Command {
 	opts := &ReviewOptions{
 		IO:        f.IOStreams,
-		ApiClient: f.ApiClient,
+		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
 	}
@@ -38,22 +38,21 @@ func NewCmdReview(f *cmdutil.Factory, runF func(*ReviewOptions) error) *cobra.Co
 	cmd := &cobra.Command{
 		Use:   "review [<number> | <url> | <branch>]",
 		Short: "Add a review to a pull request",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  cmdutil.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.Arg = args[0]
 			}
-			modes := 0
-			for _, b := range []bool{opts.Approve, opts.RequestChanges, opts.Comment} {
-				if b {
-					modes++
-				}
+			const modeMsg = "specify exactly one of --approve, --request-changes, or --comment"
+			if err := cmdutil.MutuallyExclusive(modeMsg, opts.Approve, opts.RequestChanges, opts.Comment); err != nil {
+				return err
 			}
-			if modes != 1 {
-				return cmdutil.FlagErrorf("specify exactly one of --approve, --request-changes, or --comment")
+			if !opts.Approve && !opts.RequestChanges && !opts.Comment {
+				return cmdutil.FlagErrorf(modeMsg)
 			}
-			if opts.Body != "" && opts.BodyFile != "" {
-				return cmdutil.FlagErrorf("specify only one of --body or --body-file")
+			if err := cmdutil.MutuallyExclusive("specify only one of --body or --body-file",
+				cmd.Flags().Changed("body"), cmd.Flags().Changed("body-file")); err != nil {
+				return err
 			}
 			if runF != nil {
 				return runF(opts)
@@ -65,8 +64,7 @@ func NewCmdReview(f *cmdutil.Factory, runF func(*ReviewOptions) error) *cobra.Co
 	cmd.Flags().BoolVarP(&opts.Approve, "approve", "a", false, "Approve the pull request")
 	cmd.Flags().BoolVarP(&opts.RequestChanges, "request-changes", "r", false, "Request changes on the pull request")
 	cmd.Flags().BoolVarP(&opts.Comment, "comment", "c", false, "Comment on the pull request")
-	cmd.Flags().StringVarP(&opts.Body, "body", "b", "", "The body of the review")
-	cmd.Flags().StringVarP(&opts.BodyFile, "body-file", "F", "", "Read body text from `file` (use \"-\" for stdin)")
+	cmdutil.AddBodyFlags(cmd, &opts.Body, &opts.BodyFile)
 
 	return cmd
 }
@@ -87,7 +85,7 @@ func reviewRun(opts *ReviewOptions) error {
 		return cmdutil.FlagErrorf("a body is required when commenting; use --body or --body-file")
 	}
 
-	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
+	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
@@ -105,7 +103,7 @@ func reviewRun(opts *ReviewOptions) error {
 				return err
 			}
 		}
-		fmt.Fprintf(opts.IO.ErrOut, "%s Approved pull request #%d\n", shared.SuccessIcon(opts.IO), pr.ID)
+		fmt.Fprintf(opts.IO.ErrOut, "%s Approved pull request #%d\n", opts.IO.ErrColorScheme().SuccessIcon(), pr.ID)
 	case opts.RequestChanges:
 		if err := client.RequestChanges(ctx, fullName, pr.ID); err != nil {
 			return err
@@ -115,12 +113,12 @@ func reviewRun(opts *ReviewOptions) error {
 				return err
 			}
 		}
-		fmt.Fprintf(opts.IO.ErrOut, "%s Requested changes on pull request #%d\n", shared.SuccessIcon(opts.IO), pr.ID)
+		fmt.Fprintf(opts.IO.ErrOut, "%s Requested changes on pull request #%d\n", opts.IO.ErrColorScheme().SuccessIcon(), pr.ID)
 	case opts.Comment:
 		if _, err := client.CreateComment(ctx, fullName, pr.ID, api.CommentInput{Body: body}); err != nil {
 			return err
 		}
-		fmt.Fprintf(opts.IO.ErrOut, "%s Commented on pull request #%d\n", shared.SuccessIcon(opts.IO), pr.ID)
+		fmt.Fprintf(opts.IO.ErrOut, "%s Commented on pull request #%d\n", opts.IO.ErrColorScheme().SuccessIcon(), pr.ID)
 	}
 
 	return nil

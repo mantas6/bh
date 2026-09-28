@@ -5,7 +5,6 @@ import (
 
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/config"
-	"github.com/mantas6/bh/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -25,7 +24,7 @@ func NewCmdLogout(f *cmdutil.Factory, runF func(*LogoutOptions) error) *cobra.Co
 	cmd := &cobra.Command{
 		Use:   "logout",
 		Short: "Log out of Bitbucket",
-		Args:  cobra.NoArgs,
+		Args:  cmdutil.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(opts)
@@ -53,7 +52,6 @@ func logoutRun(opts *LogoutOptions) error {
 		return err
 	}
 
-	cs := output.NewColorScheme(opts.IO.ColorEnabled())
-	fmt.Fprintf(opts.IO.ErrOut, "%s Logged out of %s\n", cs.SuccessIcon(), host)
+	fmt.Fprintf(opts.IO.ErrOut, "%s Logged out of %s\n", opts.IO.ErrColorScheme().SuccessIcon(), host)
 	return nil
 }

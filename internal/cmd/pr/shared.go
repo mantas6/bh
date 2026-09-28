@@ -5,15 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/mantas6/bh/internal/cmd/pr/shared"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
 )
-
-// browser is the minimal interface the pr commands need to open URLs.
-type browser interface {
-	Browse(string) error
-}
 
 // remoteName returns the resolved remote's name, defaulting to "origin".
 func remoteName(rr *git.ResolvedRemote) string {
@@ -49,6 +43,6 @@ func deleteLocalSourceBranch(ctx context.Context, g git.Runner, ios *cmdutil.IOS
 		return err
 	}
 
-	fmt.Fprintf(ios.ErrOut, "%s Deleted local branch %s\n", shared.SuccessIcon(ios), source)
+	fmt.Fprintf(ios.ErrOut, "%s Deleted local branch %s\n", ios.ErrColorScheme().SuccessIcon(), source)
 	return nil
 }

@@ -27,7 +27,7 @@ func TestDecline(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &DeclineOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -54,7 +54,7 @@ func TestDeclineDeleteBranch(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &DeclineOptions{
 		IO:           ios,
-		ApiClient:    func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient:    func() (*api.Client, error) { return srv.Client(), nil },
 		Git:          gitFunc(stub),
 		BaseRepo:     baseRepoFunc(originRemote()),
 		Arg:          "123",
@@ -81,7 +81,7 @@ func TestDeclineNotOpenErrors(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &DeclineOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -132,7 +132,7 @@ func TestDeclineDeleteBranchWithoutRemoteErrors(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &DeclineOptions{
 		IO:           ios,
-		ApiClient:    func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient:    func() (*api.Client, error) { return srv.Client(), nil },
 		Git:          gitFunc(stub),
 		BaseRepo:     baseRepoFunc(nil),
 		Arg:          "123",

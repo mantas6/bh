@@ -117,8 +117,8 @@ func TestBHConfigDirOverride(t *testing.T) {
 	t.Setenv("BH_CONFIG_DIR", dir)
 	t.Setenv("XDG_CONFIG_HOME", "/should/not/use")
 
-	if got := ConfigDir(); got != dir {
-		t.Fatalf("ConfigDir() = %q, want %q", got, dir)
+	if got := Dir(); got != dir {
+		t.Fatalf("Dir() = %q, want %q", got, dir)
 	}
 }
 
@@ -128,8 +128,8 @@ func TestXDGConfigHomeFallback(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 
 	want := filepath.Join(xdg, "bh")
-	if got := ConfigDir(); got != want {
-		t.Fatalf("ConfigDir() = %q, want %q", got, want)
+	if got := Dir(); got != want {
+		t.Fatalf("Dir() = %q, want %q", got, want)
 	}
 }
 

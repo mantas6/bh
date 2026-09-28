@@ -36,9 +36,6 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 		return cmdutil.FlagErrorWrap(err)
 	})
 
-	// Global repository override, consumed by f.BaseRepo.
-	cmd.PersistentFlags().StringVarP(&f.RepoOverride, "repo", "R", "", "Select a repository using the `[HOST/]OWNER/REPO` format or a repository URL")
-
 	// Cobra registers a --version flag automatically because Version is set.
 	cmd.AddCommand(auth.NewCmdAuth(f))
 	cmd.AddCommand(pr.NewCmdPR(f))

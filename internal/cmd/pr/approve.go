@@ -14,7 +14,7 @@ import (
 // ApproveOptions holds the dependencies and flags for `bh pr approve`.
 type ApproveOptions struct {
 	IO        *cmdutil.IOStreams
-	ApiClient func() (*api.Client, error)
+	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
 
@@ -26,7 +26,7 @@ type ApproveOptions struct {
 func NewCmdApprove(f *cmdutil.Factory, runF func(*ApproveOptions) error) *cobra.Command {
 	opts := &ApproveOptions{
 		IO:        f.IOStreams,
-		ApiClient: f.ApiClient,
+		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
 	}
@@ -34,7 +34,7 @@ func NewCmdApprove(f *cmdutil.Factory, runF func(*ApproveOptions) error) *cobra.
 	cmd := &cobra.Command{
 		Use:   "approve [<number> | <url> | <branch>]",
 		Short: "Approve a pull request",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  cmdutil.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.Arg = args[0]
@@ -54,7 +54,7 @@ func NewCmdApprove(f *cmdutil.Factory, runF func(*ApproveOptions) error) *cobra.
 func approveRun(opts *ApproveOptions) error {
 	ctx := context.Background()
 
-	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
+	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
@@ -64,13 +64,13 @@ func approveRun(opts *ApproveOptions) error {
 		if err := client.UnapprovePullRequest(ctx, repo.FullName(), pr.ID); err != nil {
 			return err
 		}
-		fmt.Fprintf(opts.IO.ErrOut, "%s Removed approval from pull request #%d\n", shared.SuccessIcon(opts.IO), pr.ID)
+		fmt.Fprintf(opts.IO.ErrOut, "%s Removed approval from pull request #%d\n", opts.IO.ErrColorScheme().SuccessIcon(), pr.ID)
 		return nil
 	}
 
 	if err := client.ApprovePullRequest(ctx, repo.FullName(), pr.ID); err != nil {
 		return err
 	}
-	fmt.Fprintf(opts.IO.ErrOut, "%s Approved pull request #%d\n", shared.SuccessIcon(opts.IO), pr.ID)
+	fmt.Fprintf(opts.IO.ErrOut, "%s Approved pull request #%d\n", opts.IO.ErrColorScheme().SuccessIcon(), pr.ID)
 	return nil
 }

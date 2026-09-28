@@ -20,7 +20,7 @@ func listComments(srv *apitest.Server, comments []api.Comment) {
 func newListOpts(srv *apitest.Server, ios *cmdutil.IOStreams) *ListOptions {
 	return &ListOptions{
 		IO:        ios,
-		ApiClient: clientFunc(srv),
+		APIClient: clientFunc(srv),
 		Git:       gitFunc(newGitStub()),
 		BaseRepo:  baseRepoFunc(),
 		Now:       nowFunc(),

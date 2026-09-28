@@ -37,33 +37,46 @@ func Heredoc(s string) string {
 	return strings.TrimRight(strings.Join(lines, "\n"), "\n")
 }
 
-// ExactArgs returns a PositionalArgs that requires exactly n arguments,
-// returning a FlagError with msg otherwise.
+// The validators below return FlagErrors so the top level prints the error
+// followed by a "Run '<command> --help' for usage." hint.
+
+// NoArgs is a PositionalArgs that rejects any positional argument.
+func NoArgs(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	return FlagErrorf("unknown argument %q; %q accepts no arguments (quote values that contain spaces)", args[0], cmd.CommandPath())
+}
+
+// MaxArgs returns a PositionalArgs that accepts at most n arguments.
+func MaxArgs(n int) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) <= n {
+			return nil
+		}
+		return tooManyArgs(cmd, n, args)
+	}
+}
+
+// ExactArgs returns a PositionalArgs that requires exactly n arguments. When
+// arguments are missing the FlagError carries msg.
 func ExactArgs(n int, msg string) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
-		if len(args) != n {
+		switch {
+		case len(args) < n:
 			return FlagErrorf("%s", msg)
+		case len(args) > n:
+			return tooManyArgs(cmd, n, args)
 		}
 		return nil
 	}
 }
 
-// MinimumArgs returns a PositionalArgs that requires at least n arguments,
-// returning a FlagError with msg otherwise.
-func MinimumArgs(n int, msg string) cobra.PositionalArgs {
-	return func(cmd *cobra.Command, args []string) error {
-		if len(args) < n {
-			return FlagErrorf("%s", msg)
-		}
-		return nil
+func tooManyArgs(cmd *cobra.Command, n int, args []string) error {
+	noun := "arguments"
+	if n == 1 {
+		noun = "argument"
 	}
-}
-
-// NoArgsQuoteReminder is a PositionalArgs that rejects any positional argument,
-// reminding the user to quote multi-word values.
-func NoArgsQuoteReminder(cmd *cobra.Command, args []string) error {
-	if len(args) < 1 {
-		return nil
-	}
-	return FlagErrorf("unknown argument %q; please quote all values that have spaces", args[0])
+	return FlagErrorf("too many arguments; %q accepts at most %d %s, received %d (quote values that contain spaces)",
+		cmd.CommandPath(), n, noun, len(args))
 }

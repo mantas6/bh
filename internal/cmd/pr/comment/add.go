@@ -17,7 +17,7 @@ import (
 // AddOptions holds the dependencies and flags for `bh pr comment add`.
 type AddOptions struct {
 	IO        *cmdutil.IOStreams
-	ApiClient func() (*api.Client, error)
+	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
 	Now       func() time.Time
@@ -36,7 +36,7 @@ type AddOptions struct {
 func NewCmdAdd(f *cmdutil.Factory, runF func(*AddOptions) error) *cobra.Command {
 	opts := &AddOptions{
 		IO:        f.IOStreams,
-		ApiClient: f.ApiClient,
+		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
 		Now:       time.Now,
@@ -66,14 +66,15 @@ func NewCmdAdd(f *cmdutil.Factory, runF func(*AddOptions) error) *cobra.Command 
 			# Pipe the body from another command
 			$ echo "Nice work" | bh pr comment add 123
 		`),
-		Args: cobra.MaximumNArgs(1),
+		Args: cmdutil.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.Arg = args[0]
 			}
 			opts.lineSet = cmd.Flags().Changed("line")
-			if opts.Body != "" && opts.BodyFile != "" {
-				return cmdutil.FlagErrorf("specify only one of --body or --body-file")
+			if err := cmdutil.MutuallyExclusive("specify only one of --body or --body-file",
+				cmd.Flags().Changed("body"), cmd.Flags().Changed("body-file")); err != nil {
+				return err
 			}
 			if opts.lineSet && opts.Path == "" {
 				return cmdutil.FlagErrorf("--line requires --path")
@@ -90,8 +91,7 @@ func NewCmdAdd(f *cmdutil.Factory, runF func(*AddOptions) error) *cobra.Command 
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.Body, "body", "b", "", "Comment body text")
-	cmd.Flags().StringVarP(&opts.BodyFile, "body-file", "F", "", "Read body text from `file` (use \"-\" for stdin)")
+	cmdutil.AddBodyFlags(cmd, &opts.Body, &opts.BodyFile)
 	cmd.Flags().StringVar(&opts.Path, "path", "", "Path of the file to comment on (inline)")
 	cmd.Flags().IntVar(&opts.Line, "line", 0, "Line number to comment on (requires --path)")
 	cmd.Flags().StringVar(&opts.Side, "side", "new", "Side of the diff for --line: new or old")
@@ -110,7 +110,7 @@ func addRun(opts *AddOptions) error {
 		return errors.New("comment body is required (use -b, -F, or pipe via stdin)")
 	}
 
-	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
+	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
@@ -157,5 +157,5 @@ func printCreated(ios *cmdutil.IOStreams, c *api.Comment) {
 		fmt.Fprintln(ios.Out, c.Links.HTML.Href)
 		return
 	}
-	fmt.Fprintf(ios.Out, "%s Added comment #%d\n", shared.SuccessIcon(ios), c.ID)
+	fmt.Fprintf(ios.Out, "%s Added comment #%d\n", ios.ColorScheme().SuccessIcon(), c.ID)
 }

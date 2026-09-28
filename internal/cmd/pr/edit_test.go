@@ -23,7 +23,7 @@ func TestEditChangedKeysAndReviewers(t *testing.T) {
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := &EditOptions{
 		IO:              ios,
-		ApiClient:       func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient:       func() (*api.Client, error) { return srv.Client(), nil },
 		Git:             gitFunc(gittest.New()),
 		BaseRepo:        baseRepoFunc(nil),
 		Arg:             "123",
@@ -76,7 +76,7 @@ func TestEditDraftReady(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &EditOptions{
 		IO:        ios,
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(nil),
 		Arg:       "123",

@@ -16,6 +16,9 @@ func NewCmdPR(f *cmdutil.Factory) *cobra.Command {
 		Short: "Manage pull requests",
 	}
 
+	// Repository override for every pr subcommand, consumed by f.BaseRepo.
+	cmd.PersistentFlags().StringVarP(&f.RepoOverride, "repo", "R", "", "Select a repository using the `[HOST/]OWNER/REPO` format or a repository URL")
+
 	cmd.AddCommand(NewCmdList(f, nil))
 	cmd.AddCommand(NewCmdView(f, nil))
 	cmd.AddCommand(NewCmdCreate(f, nil))

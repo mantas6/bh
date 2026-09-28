@@ -1,8 +1,6 @@
 package shared
 
 import (
-	"bufio"
-	"errors"
 	"io"
 	"os"
 	"strings"
@@ -10,7 +8,6 @@ import (
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
-	"github.com/mantas6/bh/internal/output"
 )
 
 // UserName returns the name bh displays for a user: the nickname, falling
@@ -38,14 +35,15 @@ func SameRepoPR(pr *api.PullRequest, repo git.Repo) bool {
 		strings.EqualFold(pr.Source.Repository.FullName, repo.FullName())
 }
 
-// ReadBodyFile reads a --body-file value; "-" reads from ios.In.
+// ReadBodyFile reads a --body-file value; "-" reads standard input (through
+// the shared ios.Stdin reader).
 func ReadBodyFile(ios *cmdutil.IOStreams, path string) (string, error) {
 	var (
 		b   []byte
 		err error
 	)
 	if path == "-" {
-		b, err = io.ReadAll(ios.In)
+		b, err = io.ReadAll(ios.Stdin())
 	} else {
 		b, err = os.ReadFile(path)
 	}
@@ -53,18 +51,4 @@ func ReadBodyFile(ios *cmdutil.IOStreams, path string) (string, error) {
 		return "", err
 	}
 	return string(b), nil
-}
-
-// ReadLine reads a single line from r without the trailing newline.
-func ReadLine(r io.Reader) (string, error) {
-	line, err := bufio.NewReader(r).ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", err
-	}
-	return strings.TrimRight(line, "\r\n"), nil
-}
-
-// SuccessIcon returns a green check mark, colored only when the stream allows.
-func SuccessIcon(ios *cmdutil.IOStreams) string {
-	return output.NewColorScheme(ios.ColorEnabled()).SuccessIcon()
 }

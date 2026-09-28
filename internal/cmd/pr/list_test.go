@@ -12,7 +12,7 @@ import (
 
 func newListOptions(srv *apitest.Server) *ListOptions {
 	return &ListOptions{
-		ApiClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
 		BaseRepo:  baseRepoFunc(nil),
 		Now:       fixedNow,
 		State:     "open",

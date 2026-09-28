@@ -8,7 +8,6 @@ import (
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/config"
-	"github.com/mantas6/bh/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -16,7 +15,7 @@ import (
 type StatusOptions struct {
 	IO           *cmdutil.IOStreams
 	Config       func() (*config.Config, error)
-	ApiClientFor func(token, email string) *api.Client
+	APIClientFor func(token, email string) *api.Client
 
 	ShowToken bool
 }
@@ -24,19 +23,15 @@ type StatusOptions struct {
 // NewCmdStatus creates the "auth status" command.
 func NewCmdStatus(f *cmdutil.Factory, runF func(*StatusOptions) error) *cobra.Command {
 	opts := &StatusOptions{
-		IO:     f.IOStreams,
-		Config: f.Config,
-		ApiClientFor: func(token, email string) *api.Client {
-			c := api.NewClient(api.DefaultBaseURL, token, email)
-			c.UserAgent = "bh/" + f.Version
-			return c
-		},
+		IO:           f.IOStreams,
+		Config:       f.Config,
+		APIClientFor: f.APIClientFor,
 	}
 
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "View authentication status",
-		Args:  cobra.NoArgs,
+		Args:  cmdutil.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runF != nil {
 				return runF(opts)
@@ -64,10 +59,10 @@ func statusRun(opts *StatusOptions) error {
 	email := cfg.Email(host)
 
 	out := opts.IO.Out
-	cs := output.NewColorScheme(opts.IO.ColorEnabled())
+	cs := opts.IO.ColorScheme()
 	fmt.Fprintln(out, host)
 
-	client := opts.ApiClientFor(token, email)
+	client := opts.APIClientFor(token, email)
 	user, err := client.CurrentUser(context.Background())
 	if err != nil {
 		msg := err.Error()

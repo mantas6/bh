@@ -3,7 +3,6 @@ package shared
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/mantas6/bh/internal/api"
@@ -81,24 +80,5 @@ func TestReadBodyFile(t *testing.T) {
 
 	if _, err := ReadBodyFile(ios, filepath.Join(t.TempDir(), "missing")); err == nil {
 		t.Fatal("expected error for missing file")
-	}
-}
-
-func TestReadLine(t *testing.T) {
-	cases := map[string]string{
-		"yes\n":      "yes",
-		"yes\r\n":    "yes",
-		"no-eol":     "no-eol",
-		"":           "",
-		"one\ntwo\n": "one",
-	}
-	for in, want := range cases {
-		got, err := ReadLine(strings.NewReader(in))
-		if err != nil {
-			t.Fatalf("ReadLine(%q): %v", in, err)
-		}
-		if got != want {
-			t.Errorf("ReadLine(%q) = %q, want %q", in, got, want)
-		}
 	}
 }

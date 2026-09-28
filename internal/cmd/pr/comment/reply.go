@@ -16,7 +16,7 @@ import (
 // ReplyOptions holds the dependencies and flags for `bh pr comment reply`.
 type ReplyOptions struct {
 	IO        *cmdutil.IOStreams
-	ApiClient func() (*api.Client, error)
+	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
 	Now       func() time.Time
@@ -31,7 +31,7 @@ type ReplyOptions struct {
 func NewCmdReply(f *cmdutil.Factory, runF func(*ReplyOptions) error) *cobra.Command {
 	opts := &ReplyOptions{
 		IO:        f.IOStreams,
-		ApiClient: f.ApiClient,
+		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
 		Now:       time.Now,
@@ -48,8 +48,9 @@ func NewCmdReply(f *cmdutil.Factory, runF func(*ReplyOptions) error) *cobra.Comm
 				return cmdutil.FlagErrorWrap(err)
 			}
 			opts.CommentID = id
-			if opts.Body != "" && opts.BodyFile != "" {
-				return cmdutil.FlagErrorf("specify only one of --body or --body-file")
+			if err := cmdutil.MutuallyExclusive("specify only one of --body or --body-file",
+				cmd.Flags().Changed("body"), cmd.Flags().Changed("body-file")); err != nil {
+				return err
 			}
 			if runF != nil {
 				return runF(opts)
@@ -58,8 +59,7 @@ func NewCmdReply(f *cmdutil.Factory, runF func(*ReplyOptions) error) *cobra.Comm
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.Body, "body", "b", "", "Reply body text")
-	cmd.Flags().StringVarP(&opts.BodyFile, "body-file", "F", "", "Read body text from `file` (use \"-\" for stdin)")
+	cmdutil.AddBodyFlags(cmd, &opts.Body, &opts.BodyFile)
 
 	return cmd
 }
@@ -75,7 +75,7 @@ func replyRun(opts *ReplyOptions) error {
 		return errors.New("comment body is required (use -b, -F, or pipe via stdin)")
 	}
 
-	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
+	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}

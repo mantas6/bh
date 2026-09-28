@@ -14,7 +14,7 @@ import (
 // required when the argument is empty (the current branch).
 type Finder struct {
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
-	ApiClient func() (*api.Client, error)
+	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 }
 
@@ -24,7 +24,7 @@ func NewFinder(
 	apiClient func() (*api.Client, error),
 	gitFn func() (git.Runner, error),
 ) *Finder {
-	return &Finder{BaseRepo: baseRepo, ApiClient: apiClient, Git: gitFn}
+	return &Finder{BaseRepo: baseRepo, APIClient: apiClient, Git: gitFn}
 }
 
 // FoundPR is the result of Finder.Find.
@@ -63,7 +63,7 @@ func (f *Finder) Find(ctx context.Context, arg string) (*FoundPR, error) {
 		}
 	}
 
-	found.Client, err = f.ApiClient()
+	found.Client, err = f.APIClient()
 	if err != nil {
 		return nil, err
 	}

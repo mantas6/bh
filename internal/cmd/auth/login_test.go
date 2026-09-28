@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -10,7 +11,7 @@ import (
 	"github.com/mantas6/bh/internal/config"
 )
 
-// clientForServer returns an ApiClientFor that points at the fake server while
+// clientForServer returns an APIClientFor that points at the fake server while
 // honoring the token/email passed by the command.
 func clientForServer(srv *apitest.Server) func(token, email string) *api.Client {
 	return func(token, email string) *api.Client {
@@ -33,7 +34,7 @@ func TestLoginWithTokenSaves(t *testing.T) {
 	opts := &LoginOptions{
 		IO:           ios,
 		Config:       config.Load,
-		ApiClientFor: clientForServer(srv),
+		APIClientFor: clientForServer(srv),
 		WithToken:    true,
 	}
 
@@ -77,7 +78,7 @@ func TestLoginInvalidTokenDoesNotSave(t *testing.T) {
 	opts := &LoginOptions{
 		IO:           ios,
 		Config:       config.Load,
-		ApiClientFor: clientForServer(srv),
+		APIClientFor: clientForServer(srv),
 		WithToken:    true,
 	}
 
@@ -130,7 +131,7 @@ func TestLoginInteractiveBasic(t *testing.T) {
 	opts := &LoginOptions{
 		IO:           ios,
 		Config:       config.Load,
-		ApiClientFor: clientForServer(srv),
+		APIClientFor: clientForServer(srv),
 		ReadPassword: func() (string, error) { return "interactive-token", nil },
 	}
 
@@ -168,7 +169,7 @@ func TestLoginWarnsOnBHToken(t *testing.T) {
 	opts := &LoginOptions{
 		IO:           ios,
 		Config:       config.Load,
-		ApiClientFor: clientForServer(srv),
+		APIClientFor: clientForServer(srv),
 		WithToken:    true,
 	}
 
@@ -207,5 +208,42 @@ func TestNewCmdLoginFlagParsing(t *testing.T) {
 	}
 	if !captured.emailSet {
 		t.Error("emailSet should be true when --email passed")
+	}
+}
+
+func TestNewCmdLoginDefaultReadPassword(t *testing.T) {
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	f := &cmdutil.Factory{IOStreams: ios}
+
+	var captured *LoginOptions
+	cmd := NewCmdLogin(f, func(o *LoginOptions) error {
+		captured = o
+		return nil
+	})
+	cmd.SetArgs([]string{})
+	cmd.SetOut(ios.Out)
+	cmd.SetErr(ios.ErrOut)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if captured.ReadPassword == nil {
+		t.Fatal("ReadPassword should default to a terminal reader")
+	}
+	// In-memory stdin has no file descriptor to read from without echo.
+	if _, err := captured.ReadPassword(); err == nil || !strings.Contains(err.Error(), "not a terminal") {
+		t.Errorf("ReadPassword error = %v", err)
+	}
+}
+
+func TestNewCmdLoginRejectsArgs(t *testing.T) {
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	f := &cmdutil.Factory{IOStreams: ios}
+	cmd := NewCmdLogin(f, func(*LoginOptions) error { return nil })
+	cmd.SetArgs([]string{"token"})
+	cmd.SetOut(ios.Out)
+	cmd.SetErr(ios.ErrOut)
+	var fe *cmdutil.FlagError
+	if err := cmd.Execute(); !errors.As(err, &fe) {
+		t.Fatalf("expected FlagError, got %v", err)
 	}
 }

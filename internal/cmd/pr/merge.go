@@ -15,7 +15,7 @@ import (
 // MergeOptions holds the dependencies and flags for `bh pr merge`.
 type MergeOptions struct {
 	IO        *cmdutil.IOStreams
-	ApiClient func() (*api.Client, error)
+	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
 
@@ -32,7 +32,7 @@ type MergeOptions struct {
 func NewCmdMerge(f *cmdutil.Factory, runF func(*MergeOptions) error) *cobra.Command {
 	opts := &MergeOptions{
 		IO:        f.IOStreams,
-		ApiClient: f.ApiClient,
+		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
 	}
@@ -59,13 +59,14 @@ func NewCmdMerge(f *cmdutil.Factory, runF func(*MergeOptions) error) *cobra.Comm
 			# Merge non-interactively with a merge commit
 			$ bh pr merge 123 --merge --yes
 		`),
-		Args: cobra.MaximumNArgs(1),
+		Args: cmdutil.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.Arg = args[0]
 			}
-			if mergeStrategyCount(opts) > 1 {
-				return cmdutil.FlagErrorf("specify only one of --merge, --squash, or --fast-forward")
+			if err := cmdutil.MutuallyExclusive("specify only one of --merge, --squash, or --fast-forward",
+				opts.Merge, opts.Squash, opts.FastForward); err != nil {
+				return err
 			}
 			if runF != nil {
 				return runF(opts)
@@ -82,16 +83,6 @@ func NewCmdMerge(f *cmdutil.Factory, runF func(*MergeOptions) error) *cobra.Comm
 	cmd.Flags().BoolVarP(&opts.Yes, "yes", "y", false, "Skip the merge confirmation prompt")
 
 	return cmd
-}
-
-func mergeStrategyCount(opts *MergeOptions) int {
-	n := 0
-	for _, b := range []bool{opts.Merge, opts.Squash, opts.FastForward} {
-		if b {
-			n++
-		}
-	}
-	return n
 }
 
 // flagStrategy returns the merge strategy selected by a flag, or "" if none.
@@ -111,7 +102,7 @@ func flagStrategy(opts *MergeOptions) string {
 func mergeRun(opts *MergeOptions) error {
 	ctx := context.Background()
 
-	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
+	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
@@ -134,16 +125,12 @@ func mergeRun(opts *MergeOptions) error {
 		if !opts.IO.IsStdinTTY() {
 			return fmt.Errorf("specify a merge strategy (--merge, --squash, --fast-forward) or --yes when not running interactively")
 		}
-		fmt.Fprintf(opts.IO.ErrOut, "Merge pull request #%d (%s) into %s using %s? [Y/n] ",
-			pr.ID, pr.Title, pr.Destination.Branch.Name, strategy)
-		ans, err := shared.ReadLine(opts.IO.In)
+		ok, err := opts.IO.Prompter().Confirm(fmt.Sprintf("Merge pull request #%d (%s) into %s using %s?",
+			pr.ID, pr.Title, pr.Destination.Branch.Name, strategy), true)
 		if err != nil {
 			return err
 		}
-		switch strings.ToLower(strings.TrimSpace(ans)) {
-		case "", "y", "yes":
-			// proceed
-		default:
+		if !ok {
 			return cmdutil.ErrCancel
 		}
 	}
@@ -156,7 +143,7 @@ func mergeRun(opts *MergeOptions) error {
 		return err
 	}
 
-	fmt.Fprintf(opts.IO.ErrOut, "%s Merged pull request #%d (%s)\n", shared.SuccessIcon(opts.IO), pr.ID, pr.Title)
+	fmt.Fprintf(opts.IO.ErrOut, "%s Merged pull request #%d (%s)\n", opts.IO.ErrColorScheme().SuccessIcon(), pr.ID, pr.Title)
 
 	// The remote source branch is closed by the API; only the local branch
 	// is cleaned up, and only when this checkout has a remote for the repo.

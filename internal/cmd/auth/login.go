@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -12,7 +11,6 @@ import (
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/config"
-	"github.com/mantas6/bh/internal/output"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -25,9 +23,9 @@ const tokenInstructions = "Create an API token at https://id.atlassian.com/manag
 type LoginOptions struct {
 	IO     *cmdutil.IOStreams
 	Config func() (*config.Config, error)
-	// ApiClientFor builds an API client for the given token/email so tests can
+	// APIClientFor builds an API client for the given token/email so tests can
 	// point it at a fake server.
-	ApiClientFor func(token, email string) *api.Client
+	APIClientFor func(token, email string) *api.Client
 	// ReadPassword reads the token without echoing. Injectable for tests.
 	ReadPassword func() (string, error)
 
@@ -39,13 +37,13 @@ type LoginOptions struct {
 // NewCmdLogin creates the "auth login" command. If runF is non-nil it is
 // invoked instead of loginRun (used by tests to capture parsed options).
 func NewCmdLogin(f *cmdutil.Factory, runF func(*LoginOptions) error) *cobra.Command {
+	ios := f.IOStreams
 	opts := &LoginOptions{
-		IO:     f.IOStreams,
-		Config: f.Config,
-		ApiClientFor: func(token, email string) *api.Client {
-			c := api.NewClient(api.DefaultBaseURL, token, email)
-			c.UserAgent = "bh/" + f.Version
-			return c
+		IO:           ios,
+		Config:       f.Config,
+		APIClientFor: f.APIClientFor,
+		ReadPassword: func() (string, error) {
+			return readPassword(ios)
 		},
 	}
 
@@ -73,16 +71,9 @@ func NewCmdLogin(f *cmdutil.Factory, runF func(*LoginOptions) error) *cobra.Comm
 			# Use Basic auth with your Atlassian email
 			$ bh auth login --email you@example.com
 		`),
-		Args: cobra.NoArgs,
+		Args: cmdutil.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.emailSet = cmd.Flags().Changed("email")
-			if opts.ReadPassword == nil {
-				opts.ReadPassword = func() (string, error) {
-					b, err := term.ReadPassword(int(os.Stdin.Fd()))
-					fmt.Fprintln(opts.IO.ErrOut)
-					return string(b), err
-				}
-			}
 			if runF != nil {
 				return runF(opts)
 			}
@@ -106,7 +97,7 @@ func loginRun(opts *LoginOptions) error {
 	email := opts.Email
 
 	if opts.WithToken {
-		data, err := io.ReadAll(opts.IO.In)
+		data, err := io.ReadAll(opts.IO.Stdin())
 		if err != nil {
 			return err
 		}
@@ -129,16 +120,14 @@ func loginRun(opts *LoginOptions) error {
 			return errors.New("a token must be provided")
 		}
 		if !opts.emailSet {
-			fmt.Fprint(opts.IO.ErrOut, "Atlassian account email (leave blank to use Bearer auth): ")
-			line, err := readLine(opts.IO.In)
+			email, err = opts.IO.Prompter().Input("Atlassian account email (leave blank to use Bearer auth)", "")
 			if err != nil {
 				return err
 			}
-			email = strings.TrimSpace(line)
 		}
 	}
 
-	client := opts.ApiClientFor(token, email)
+	client := opts.APIClientFor(token, email)
 	user, err := client.CurrentUser(context.Background())
 	if err != nil {
 		if api.IsUnauthorized(err) {
@@ -160,7 +149,7 @@ func loginRun(opts *LoginOptions) error {
 		return err
 	}
 
-	cs := output.NewColorScheme(opts.IO.ColorEnabled())
+	cs := opts.IO.ErrColorScheme()
 	if os.Getenv("BH_TOKEN") != "" {
 		fmt.Fprintf(opts.IO.ErrOut, "%s The BH_TOKEN environment variable is set and will take precedence over the stored token.\n", cs.WarningIcon())
 	}
@@ -177,11 +166,13 @@ func displayName(u *api.User) string {
 	return u.Nickname
 }
 
-// readLine reads a single line from r (without the trailing newline).
-func readLine(r io.Reader) (string, error) {
-	line, err := bufio.NewReader(r).ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", err
+// readPassword reads a line from the terminal behind ios.In without echo.
+func readPassword(ios *cmdutil.IOStreams) (string, error) {
+	fd, ok := ios.StdinFd()
+	if !ok {
+		return "", errors.New("cannot read the token without echo: standard input is not a terminal")
 	}
-	return strings.TrimRight(line, "\r\n"), nil
+	b, err := term.ReadPassword(fd)
+	fmt.Fprintln(ios.ErrOut)
+	return string(b), err
 }

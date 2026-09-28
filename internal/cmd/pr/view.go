@@ -17,10 +17,10 @@ import (
 // ViewOptions holds the dependencies and flags for `bh pr view`.
 type ViewOptions struct {
 	IO        *cmdutil.IOStreams
-	ApiClient func() (*api.Client, error)
+	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
-	Browser   browser
+	Browser   cmdutil.Browser
 	Now       func() time.Time
 
 	Arg  string
@@ -32,19 +32,17 @@ type ViewOptions struct {
 func NewCmdView(f *cmdutil.Factory, runF func(*ViewOptions) error) *cobra.Command {
 	opts := &ViewOptions{
 		IO:        f.IOStreams,
-		ApiClient: f.ApiClient,
+		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
+		Browser:   f.Browser,
 		Now:       time.Now,
-	}
-	if f.Browser != nil {
-		opts.Browser = f.Browser
 	}
 
 	cmd := &cobra.Command{
 		Use:   "view [<number> | <url> | <branch>]",
 		Short: "View a pull request",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  cmdutil.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.Arg = args[0]
@@ -65,29 +63,25 @@ func NewCmdView(f *cmdutil.Factory, runF func(*ViewOptions) error) *cobra.Comman
 func viewRun(opts *ViewOptions) error {
 	ctx := context.Background()
 
-	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
+	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
 	pr := found.PR
 
 	if opts.Web {
-		u := pr.Links.HTML.Href
-		if opts.IO.IsStdoutTTY() {
-			fmt.Fprintf(opts.IO.ErrOut, "Opening %s in your browser.\n", u)
-		}
-		return opts.Browser.Browse(u)
+		return cmdutil.OpenInBrowser(opts.IO, opts.Browser, pr.Links.HTML.Href)
 	}
 
 	if opts.JSON {
-		return output.PrintJSON(opts.IO.Out, pr)
+		return cmdutil.PrintJSON(opts.IO.Out, pr)
 	}
 
 	return printPRView(opts, found.Repo, pr)
 }
 
 func printPRView(opts *ViewOptions, baseRepo git.Repo, pr *api.PullRequest) error {
-	cs := output.NewColorScheme(opts.IO.ColorEnabled())
+	cs := opts.IO.ColorScheme()
 	out := opts.IO.Out
 
 	fmt.Fprintf(out, "%s %s\n", cs.Bold(pr.Title), cs.Gray(fmt.Sprintf("#%d", pr.ID)))

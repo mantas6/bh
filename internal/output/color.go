@@ -1,6 +1,5 @@
 // Package output provides small presentation helpers shared by bh commands:
-// aligned tables, pretty JSON, ANSI color schemes, and relative-time
-// formatting.
+// aligned tables, ANSI color schemes, and relative-time formatting.
 package output
 
 import (

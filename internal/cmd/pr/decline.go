@@ -15,7 +15,7 @@ import (
 // DeclineOptions holds the dependencies and flags for `bh pr decline`.
 type DeclineOptions struct {
 	IO        *cmdutil.IOStreams
-	ApiClient func() (*api.Client, error)
+	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
 
@@ -27,7 +27,7 @@ type DeclineOptions struct {
 func NewCmdDecline(f *cmdutil.Factory, runF func(*DeclineOptions) error) *cobra.Command {
 	opts := &DeclineOptions{
 		IO:        f.IOStreams,
-		ApiClient: f.ApiClient,
+		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
 	}
@@ -36,7 +36,7 @@ func NewCmdDecline(f *cmdutil.Factory, runF func(*DeclineOptions) error) *cobra.
 		Use:     "decline [<number> | <url> | <branch>]",
 		Aliases: []string{"close"},
 		Short:   "Decline a pull request",
-		Args:    cobra.MaximumNArgs(1),
+		Args:    cmdutil.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.Arg = args[0]
@@ -56,7 +56,7 @@ func NewCmdDecline(f *cmdutil.Factory, runF func(*DeclineOptions) error) *cobra.
 func declineRun(opts *DeclineOptions) error {
 	ctx := context.Background()
 
-	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
+	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
@@ -78,7 +78,7 @@ func declineRun(opts *DeclineOptions) error {
 		return err
 	}
 
-	fmt.Fprintf(opts.IO.ErrOut, "%s Declined pull request #%d (%s)\n", shared.SuccessIcon(opts.IO), pr.ID, pr.Title)
+	fmt.Fprintf(opts.IO.ErrOut, "%s Declined pull request #%d (%s)\n", opts.IO.ErrColorScheme().SuccessIcon(), pr.ID, pr.Title)
 
 	if deleteBranch {
 		gitRunner, err := opts.Git()

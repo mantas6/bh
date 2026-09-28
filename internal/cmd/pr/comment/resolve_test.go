@@ -11,7 +11,7 @@ import (
 func newResolveOpts(srv *apitest.Server, ios *cmdutil.IOStreams) *ResolveOptions {
 	return &ResolveOptions{
 		IO:        ios,
-		ApiClient: clientFunc(srv),
+		APIClient: clientFunc(srv),
 		Git:       gitFunc(newGitStub()),
 		BaseRepo:  baseRepoFunc(),
 		Now:       nowFunc(),

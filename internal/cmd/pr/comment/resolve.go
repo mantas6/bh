@@ -16,7 +16,7 @@ import (
 // `bh pr comment reopen`.
 type ResolveOptions struct {
 	IO        *cmdutil.IOStreams
-	ApiClient func() (*api.Client, error)
+	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
 	Now       func() time.Time
@@ -28,7 +28,7 @@ type ResolveOptions struct {
 func newResolveOptions(f *cmdutil.Factory) *ResolveOptions {
 	return &ResolveOptions{
 		IO:        f.IOStreams,
-		ApiClient: f.ApiClient,
+		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
 		Now:       time.Now,
@@ -63,7 +63,7 @@ func NewCmdResolve(f *cmdutil.Factory, runF func(*ResolveOptions) error) *cobra.
 func resolveRun(opts *ResolveOptions, reopen bool) error {
 	ctx := context.Background()
 
-	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
+	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
@@ -73,13 +73,13 @@ func resolveRun(opts *ResolveOptions, reopen bool) error {
 		if err := client.ReopenComment(ctx, repo.FullName(), pr.ID, opts.CommentID); err != nil {
 			return err
 		}
-		fmt.Fprintf(opts.IO.Out, "%s Reopened comment #%d\n", shared.SuccessIcon(opts.IO), opts.CommentID)
+		fmt.Fprintf(opts.IO.Out, "%s Reopened comment #%d\n", opts.IO.ColorScheme().SuccessIcon(), opts.CommentID)
 		return nil
 	}
 
 	if err := client.ResolveComment(ctx, repo.FullName(), pr.ID, opts.CommentID); err != nil {
 		return err
 	}
-	fmt.Fprintf(opts.IO.Out, "%s Resolved comment #%d\n", shared.SuccessIcon(opts.IO), opts.CommentID)
+	fmt.Fprintf(opts.IO.Out, "%s Resolved comment #%d\n", opts.IO.ColorScheme().SuccessIcon(), opts.CommentID)
 	return nil
 }
