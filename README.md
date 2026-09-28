@@ -65,7 +65,9 @@ The token is validated against `GET /2.0/user` and stored in
 `~/.config/bh/hosts.yml` with `0600` permissions.
 
 Set `BH_TOKEN` in the environment to override the stored token (useful in CI).
-When set, it takes precedence over `hosts.yml`.
+When set, it takes precedence over `hosts.yml`, and the email stored there is
+ignored: set `BH_EMAIL` alongside `BH_TOKEN` to use Basic auth, or leave it
+unset to use Bearer auth. `bh auth status` shows which source is in use.
 
 ## Repository resolution
 
@@ -162,13 +164,19 @@ config directory, resolved as:
 2. `$XDG_CONFIG_HOME/bh`
 3. `~/.config/bh`
 
-The directory is created with `0700` permissions and `hosts.yml` with `0600`.
+A relative `XDG_CONFIG_HOME` is ignored. If none of these can be determined
+(for example `HOME` is unset), bh exits with an error rather than guessing.
+
+The directory is created with `0700` permissions. `hosts.yml` is written
+atomically and always saved with `0600` permissions, tightening any looser
+permissions on an existing file.
 
 ## Environment variables
 
 | Variable | Purpose |
 | --- | --- |
-| `BH_TOKEN` | API token override; takes precedence over the stored token |
+| `BH_TOKEN` | API token override; takes precedence over the stored token and email |
+| `BH_EMAIL` | Atlassian email paired with `BH_TOKEN` for Basic auth (ignored without `BH_TOKEN`) |
 | `BH_REPO` | Default repository (`ws/repo`) when no `-R` flag is given |
 | `BH_CONFIG_DIR` | Override the configuration directory |
 | `XDG_CONFIG_HOME` | Base config directory when `BH_CONFIG_DIR` is unset |

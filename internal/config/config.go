@@ -4,6 +4,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -19,6 +20,12 @@ const (
 	DefaultHost = api.DefaultHost
 
 	hostsFile = "hosts.yml"
+
+	// EnvToken overrides any stored token when set.
+	EnvToken = "BH_TOKEN"
+	// EnvEmail is the Atlassian email paired with EnvToken. It is only
+	// consulted when the token comes from EnvToken.
+	EnvEmail = "BH_EMAIL"
 )
 
 // HostConfig holds the stored credentials for a single host.
@@ -32,62 +39,85 @@ type HostConfig struct {
 	User string `yaml:"user,omitempty"`
 }
 
-// Config is the top-level configuration, keyed by host name.
+// Config is the top-level configuration, keyed by host name. It is
+// serialised as a plain host -> HostConfig mapping.
 type Config struct {
-	Hosts map[string]*HostConfig `yaml:"-"`
+	Hosts map[string]*HostConfig
 }
 
 // Dir returns the directory where bh stores its configuration.
 // Resolution order: BH_CONFIG_DIR > $XDG_CONFIG_HOME/bh > ~/.config/bh.
-func Dir() string {
+// A relative XDG_CONFIG_HOME is ignored, as required by the XDG Base
+// Directory specification. An error is returned when no absolute home
+// directory can be determined.
+func Dir() (string, error) {
 	if dir := os.Getenv("BH_CONFIG_DIR"); dir != "" {
-		return dir
+		return dir, nil
 	}
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "bh")
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" && filepath.IsAbs(xdg) {
+		return filepath.Join(xdg, "bh"), nil
 	}
 	home, err := os.UserHomeDir()
-	if err != nil {
-		// Fall back to a relative path; Save will surface any error.
-		return filepath.Join(".config", "bh")
+	if err == nil && !filepath.IsAbs(home) {
+		err = fmt.Errorf("home directory %q is not an absolute path", home)
 	}
-	return filepath.Join(home, ".config", "bh")
+	if err != nil {
+		return "", fmt.Errorf("cannot determine config directory (set BH_CONFIG_DIR or XDG_CONFIG_HOME): %w", err)
+	}
+	return filepath.Join(home, ".config", "bh"), nil
 }
 
-func hostsPath() string {
-	return filepath.Join(Dir(), hostsFile)
+// hostsPath returns the path to the hosts file.
+func hostsPath() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, hostsFile), nil
 }
 
-// Load reads the configuration from disk. A missing hosts file yields an
-// empty configuration rather than an error.
+// Load reads the configuration from disk. A missing or empty hosts file
+// yields an empty configuration rather than an error.
 func Load() (*Config, error) {
-	c := &Config{Hosts: map[string]*HostConfig{}}
+	path, err := hostsPath()
+	if err != nil {
+		return nil, err
+	}
 
-	data, err := os.ReadFile(hostsPath())
+	c := &Config{Hosts: map[string]*HostConfig{}}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return c, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("reading config: %w", err)
 	}
 
 	hosts := map[string]*HostConfig{}
 	if err := yaml.Unmarshal(data, &hosts); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	if hosts == nil {
-		hosts = map[string]*HostConfig{}
+	if hosts != nil {
+		c.Hosts = hosts
 	}
-	c.Hosts = hosts
 	return c, nil
 }
 
-// Save writes the configuration to disk, creating the config directory with
-// 0700 permissions and the hosts file with 0600 permissions.
+// Save writes the configuration to disk atomically: the data is written to a
+// temporary file in the same directory, synced, and renamed over the hosts
+// file. The config directory is created with 0700 permissions and the hosts
+// file always ends up with 0600 permissions, even if it previously existed
+// with looser ones. If the hosts file is a symlink, its target is replaced.
 func (c *Config) Save() error {
-	dir := Dir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	path, err := hostsPath()
+	if err != nil {
 		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
 	}
 
 	hosts := c.Hosts
@@ -96,10 +126,54 @@ func (c *Config) Save() error {
 	}
 	data, err := yaml.Marshal(hosts)
 	if err != nil {
+		return fmt.Errorf("encoding config: %w", err)
+	}
+
+	if err := writeFileAtomic(path, data); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	return nil
+}
+
+// writeFileAtomic writes data to path via a 0600 temporary file in the same
+// directory followed by a rename, so readers never observe a partial file.
+func writeFileAtomic(path string, data []byte) (err error) {
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer func() {
+		if err != nil {
+			_ = f.Close()
+			_ = os.Remove(tmp)
+		}
+	}()
+
+	if err = f.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err = f.Write(data); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(tmp, path); err != nil {
 		return err
 	}
 
-	return os.WriteFile(hostsPath(), data, 0o600)
+	// Best effort: persist the rename. Not all platforms support syncing a
+	// directory, so failures are ignored.
+	if d, derr := os.Open(dir); derr == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
+	return nil
 }
 
 // Host returns the configuration for the named host, or nil if absent.
@@ -123,30 +197,52 @@ func (c *Config) RemoveHost(name string) {
 	delete(c.Hosts, name)
 }
 
-// Token sources reported by Config.Token.
+// TokenSource identifies where a resolved token came from.
+type TokenSource int
+
 const (
+	// TokenSourceNone means no token is available.
+	TokenSourceNone TokenSource = iota
 	// TokenSourceEnv means the token came from the BH_TOKEN environment
 	// variable.
-	TokenSourceEnv = "BH_TOKEN"
+	TokenSourceEnv
 	// TokenSourceFile means the token came from the hosts file.
-	TokenSourceFile = hostsFile
+	TokenSourceFile
 )
 
+// String returns a short, user-facing name for the source.
+func (s TokenSource) String() string {
+	switch s {
+	case TokenSourceEnv:
+		return EnvToken
+	case TokenSourceFile:
+		return hostsFile
+	default:
+		return "none"
+	}
+}
+
 // Token resolves the token for a host. The BH_TOKEN environment variable
-// overrides any stored token. The returned source is TokenSourceEnv,
-// TokenSourceFile, or "" when no token is available.
-func (c *Config) Token(host string) (token string, source string) {
-	if env := os.Getenv("BH_TOKEN"); env != "" {
+// overrides any stored token. The source is TokenSourceNone when no token is
+// available.
+func (c *Config) Token(host string) (string, TokenSource) {
+	if env := os.Getenv(EnvToken); env != "" {
 		return env, TokenSourceEnv
 	}
 	if hc := c.Host(host); hc != nil && hc.Token != "" {
 		return hc.Token, TokenSourceFile
 	}
-	return "", ""
+	return "", TokenSourceNone
 }
 
-// Email returns the stored Atlassian email for a host, if any.
+// Email returns the Atlassian email to pair with the token Token resolves.
+// When the token comes from BH_TOKEN, the stored email is ignored and
+// BH_EMAIL is used instead (empty means Bearer auth); otherwise the stored
+// email is returned.
 func (c *Config) Email(host string) string {
+	if _, source := c.Token(host); source == TokenSourceEnv {
+		return os.Getenv(EnvEmail)
+	}
 	if hc := c.Host(host); hc != nil {
 		return hc.Email
 	}

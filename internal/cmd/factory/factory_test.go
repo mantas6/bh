@@ -156,6 +156,26 @@ func TestAPIClientUsesFactoryConfig(t *testing.T) {
 	}
 }
 
+func TestAPIClientEnvTokenUsesEnvEmail(t *testing.T) {
+	t.Setenv("BH_TOKEN", "env-tok")
+	t.Setenv("BH_EMAIL", "env@example.com")
+
+	f := New("test")
+	f.Config = func() (*config.Config, error) {
+		cfg := &config.Config{}
+		cfg.SetHost(config.DefaultHost, &config.HostConfig{Token: "tok", Email: "stored@example.com"})
+		return cfg, nil
+	}
+
+	client, err := f.APIClient()
+	if err != nil {
+		t.Fatalf("APIClient: %v", err)
+	}
+	if client.Token != "env-tok" || client.Email != "env@example.com" {
+		t.Errorf("client credentials = %q/%q, want env-tok/env@example.com", client.Token, client.Email)
+	}
+}
+
 func TestAPIClientNoToken(t *testing.T) {
 	t.Setenv("BH_TOKEN", "")
 	t.Setenv("BH_CONFIG_DIR", t.TempDir())

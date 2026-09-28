@@ -82,6 +82,9 @@ func statusRun(ctx context.Context, opts *StatusOptions) error {
 	} else {
 		fmt.Fprintln(out, "  - Auth mode: Bearer")
 	}
+	if hc := cfg.Host(host); source == config.TokenSourceEnv && hc != nil && hc.Email != "" && email == "" {
+		fmt.Fprintf(out, "  - Stored email ignored because %s is set; set %s for Basic auth\n", config.EnvToken, config.EnvEmail)
+	}
 
 	tokenDisplay := "********"
 	if opts.ShowToken {
