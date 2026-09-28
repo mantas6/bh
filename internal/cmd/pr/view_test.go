@@ -37,7 +37,7 @@ func TestViewText(t *testing.T) {
 	checks := []string{
 		"Add feature #123",
 		"OPEN • ada wants to merge feature into main • 2 comments",
-		"Reviewers: Bob (approved ✓), Cara (changes requested)",
+		"Reviewers: bob (approved ✓), cara (changes requested)",
 		"This does things.",
 		"View this pull request on Bitbucket: https://bitbucket.org/myws/myrepo/pull-requests/123",
 	}

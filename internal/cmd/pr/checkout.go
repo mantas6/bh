@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mantas6/bh/internal/api"
+	"github.com/mantas6/bh/internal/cmd/pr/shared"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
 	"github.com/spf13/cobra"
@@ -34,7 +35,7 @@ func NewCmdCheckout(f *cmdutil.Factory, runF func(*CheckoutOptions) error) *cobr
 	}
 
 	cmd := &cobra.Command{
-		Use:   "checkout {<number> | <url>}",
+		Use:   "checkout {<number> | <url> | <branch>}",
 		Short: "Check out a pull request in git",
 		Long: cmdutil.Heredoc(`
 			Check out a pull request's source branch locally.
@@ -54,7 +55,7 @@ func NewCmdCheckout(f *cmdutil.Factory, runF func(*CheckoutOptions) error) *cobr
 			# Check out from a URL in a detached HEAD
 			$ bh pr checkout https://bitbucket.org/ws/repo/pull-requests/123 --detach
 		`),
-		Args: cmdutil.ExactArgs(1, "a pull request number or URL is required"),
+		Args: cmdutil.ExactArgs(1, "a pull request number, URL, or branch is required"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Arg = args[0]
 			if opts.Branch != "" && opts.Detach {
@@ -77,23 +78,16 @@ func NewCmdCheckout(f *cmdutil.Factory, runF func(*CheckoutOptions) error) *cobr
 func checkoutRun(opts *CheckoutOptions) error {
 	ctx := context.Background()
 
-	baseRepo, resolvedRemote, err := opts.BaseRepo()
-	if err != nil {
-		return err
-	}
-	client, err := opts.ApiClient()
-	if err != nil {
-		return err
-	}
 	gitRunner, err := opts.Git()
 	if err != nil {
 		return err
 	}
 
-	pr, baseRepo, err := FindPR(ctx, client, gitRunner, baseRepo, opts.Arg)
+	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
+	pr := found.PR
 
 	branch := pr.Source.Branch.Name
 	if branch == "" {
@@ -104,10 +98,10 @@ func checkoutRun(opts *CheckoutOptions) error {
 		localName = branch
 	}
 
-	if sameRepoPR(pr, baseRepo) {
-		return checkoutSameRepo(ctx, opts, gitRunner, remoteName(resolvedRemote), branch, localName)
+	if shared.SameRepoPR(pr, found.Repo) {
+		return checkoutSameRepo(ctx, opts, gitRunner, remoteName(found.Remote), branch, localName)
 	}
-	return checkoutFork(ctx, opts, gitRunner, resolvedRemote, pr, branch, localName)
+	return checkoutFork(ctx, opts, gitRunner, found.Remote, pr, branch, localName)
 }
 
 // checkoutSameRepo checks out a PR whose source branch lives in the base repo.

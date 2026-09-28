@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mantas6/bh/internal/api"
+	"github.com/mantas6/bh/internal/cmd/pr/shared"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
 	"github.com/spf13/cobra"
@@ -88,23 +89,11 @@ func editRun(opts *EditOptions) error {
 		return cmdutil.FlagErrorf("specify at least one flag to edit")
 	}
 
-	baseRepo, _, err := opts.BaseRepo()
+	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
-	client, err := opts.ApiClient()
-	if err != nil {
-		return err
-	}
-	gitRunner, err := opts.Git()
-	if err != nil {
-		return err
-	}
-
-	pr, repo, err := FindPR(ctx, client, gitRunner, baseRepo, opts.Arg)
-	if err != nil {
-		return err
-	}
+	pr, repo, client := found.PR, found.Repo, found.Client
 
 	body := map[string]any{}
 	if opts.titleSet {
@@ -114,7 +103,7 @@ func editRun(opts *EditOptions) error {
 		body["description"] = opts.Body
 	}
 	if opts.BodyFile != "" {
-		b, err := readBodyFile(opts.IO, opts.BodyFile)
+		b, err := shared.ReadBodyFile(opts.IO, opts.BodyFile)
 		if err != nil {
 			return err
 		}

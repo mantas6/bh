@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mantas6/bh/internal/api"
+	"github.com/mantas6/bh/internal/cmd/pr/shared"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
 	"github.com/mantas6/bh/internal/output"
@@ -147,7 +148,7 @@ func listRun(opts *ListOptions) error {
 			fmt.Sprintf("#%d", pr.ID),
 			pr.Title,
 			pr.Source.Branch.Name,
-			prAuthor(&pr),
+			shared.PRAuthor(&pr),
 			state,
 			output.RelativeTime(pr.UpdatedOn, now()),
 		)

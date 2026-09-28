@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/mantas6/bh/internal/api"
+	"github.com/mantas6/bh/internal/cmd/pr/shared"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
 	"github.com/spf13/cobra"
@@ -75,7 +76,7 @@ func reviewRun(opts *ReviewOptions) error {
 
 	body := opts.Body
 	if opts.BodyFile != "" {
-		b, err := readBodyFile(opts.IO, opts.BodyFile)
+		b, err := shared.ReadBodyFile(opts.IO, opts.BodyFile)
 		if err != nil {
 			return err
 		}
@@ -86,23 +87,11 @@ func reviewRun(opts *ReviewOptions) error {
 		return cmdutil.FlagErrorf("a body is required when commenting; use --body or --body-file")
 	}
 
-	baseRepo, _, err := opts.BaseRepo()
+	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
-	client, err := opts.ApiClient()
-	if err != nil {
-		return err
-	}
-	gitRunner, err := opts.Git()
-	if err != nil {
-		return err
-	}
-
-	pr, repo, err := FindPR(ctx, client, gitRunner, baseRepo, opts.Arg)
-	if err != nil {
-		return err
-	}
+	pr, repo, client := found.PR, found.Repo, found.Client
 
 	fullName := repo.FullName()
 
@@ -116,7 +105,7 @@ func reviewRun(opts *ReviewOptions) error {
 				return err
 			}
 		}
-		fmt.Fprintf(opts.IO.ErrOut, "%s Approved pull request #%d\n", successIcon(opts.IO), pr.ID)
+		fmt.Fprintf(opts.IO.ErrOut, "%s Approved pull request #%d\n", shared.SuccessIcon(opts.IO), pr.ID)
 	case opts.RequestChanges:
 		if err := client.RequestChanges(ctx, fullName, pr.ID); err != nil {
 			return err
@@ -126,12 +115,12 @@ func reviewRun(opts *ReviewOptions) error {
 				return err
 			}
 		}
-		fmt.Fprintf(opts.IO.ErrOut, "%s Requested changes on pull request #%d\n", successIcon(opts.IO), pr.ID)
+		fmt.Fprintf(opts.IO.ErrOut, "%s Requested changes on pull request #%d\n", shared.SuccessIcon(opts.IO), pr.ID)
 	case opts.Comment:
 		if _, err := client.CreateComment(ctx, fullName, pr.ID, api.CommentInput{Body: body}); err != nil {
 			return err
 		}
-		fmt.Fprintf(opts.IO.ErrOut, "%s Commented on pull request #%d\n", successIcon(opts.IO), pr.ID)
+		fmt.Fprintf(opts.IO.ErrOut, "%s Commented on pull request #%d\n", shared.SuccessIcon(opts.IO), pr.ID)
 	}
 
 	return nil

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mantas6/bh/internal/api"
+	"github.com/mantas6/bh/internal/cmd/pr/shared"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
 	"github.com/spf13/cobra"
@@ -109,23 +110,11 @@ func addRun(opts *AddOptions) error {
 		return errors.New("comment body is required (use -b, -F, or pipe via stdin)")
 	}
 
-	repo, _, err := opts.BaseRepo()
+	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
-	client, err := opts.ApiClient()
-	if err != nil {
-		return err
-	}
-	gitRunner, err := opts.Git()
-	if err != nil {
-		return err
-	}
-
-	pr, repo, err := resolvePR(ctx, client, gitRunner, repo, opts.Arg)
-	if err != nil {
-		return err
-	}
+	pr, repo, client := found.PR, found.Repo, found.Client
 
 	in := api.CommentInput{Body: body, Path: opts.Path}
 	if opts.Path != "" && opts.lineSet {
@@ -153,9 +142,9 @@ func resolveBody(ios *cmdutil.IOStreams, body, bodyFile string) (string, error) 
 	case body != "":
 		return body, nil
 	case bodyFile != "":
-		return readBodyFile(ios, bodyFile)
+		return shared.ReadBodyFile(ios, bodyFile)
 	case !ios.IsStdinTTY():
-		return readBodyFile(ios, "-")
+		return shared.ReadBodyFile(ios, "-")
 	default:
 		return "", nil
 	}
@@ -168,5 +157,5 @@ func printCreated(ios *cmdutil.IOStreams, c *api.Comment) {
 		fmt.Fprintln(ios.Out, c.Links.HTML.Href)
 		return
 	}
-	fmt.Fprintf(ios.Out, "%s Added comment #%d\n", successIcon(ios), c.ID)
+	fmt.Fprintf(ios.Out, "%s Added comment #%d\n", shared.SuccessIcon(ios), c.ID)
 }

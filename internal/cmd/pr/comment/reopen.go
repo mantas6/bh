@@ -10,7 +10,7 @@ func NewCmdReopen(f *cmdutil.Factory, runF func(*ResolveOptions) error) *cobra.C
 	opts := newResolveOptions(f)
 
 	cmd := &cobra.Command{
-		Use:   "reopen <number> <comment-id>",
+		Use:   "reopen {<number> | <url> | <branch>} <comment-id>",
 		Short: "Reopen (unresolve) a pull request comment thread",
 		Args:  cmdutil.ExactArgs(2, "a pull request and a comment id are required"),
 		RunE: func(cmd *cobra.Command, args []string) error {

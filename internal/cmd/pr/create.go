@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mantas6/bh/internal/api"
+	"github.com/mantas6/bh/internal/cmd/pr/shared"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
 	"github.com/mantas6/bh/internal/output"
@@ -166,7 +167,7 @@ func createRun(opts *CreateOptions) error {
 	title := opts.Title
 	body := opts.Body
 	if opts.BodyFile != "" {
-		b, err := readBodyFile(opts.IO, opts.BodyFile)
+		b, err := shared.ReadBodyFile(opts.IO, opts.BodyFile)
 		if err != nil {
 			return err
 		}
@@ -189,7 +190,7 @@ func createRun(opts *CreateOptions) error {
 	if title == "" {
 		if opts.IO.IsStdinTTY() {
 			fmt.Fprint(opts.IO.ErrOut, "Title: ")
-			line, err := readLine(opts.IO.In)
+			line, err := shared.ReadLine(opts.IO.In)
 			if err != nil {
 				return err
 			}
@@ -256,7 +257,7 @@ func ensurePushed(ctx context.Context, opts *CreateOptions, gitRunner git.Runner
 		}
 		if opts.IO.IsStdinTTY() {
 			fmt.Fprintf(opts.IO.ErrOut, "Push branch %s to %s? [Y/n] ", head, remote)
-			ans, err := readLine(opts.IO.In)
+			ans, err := shared.ReadLine(opts.IO.In)
 			if err != nil {
 				return err
 			}

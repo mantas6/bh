@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mantas6/bh/internal/api"
+	"github.com/mantas6/bh/internal/cmd/pr/shared"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
 	"github.com/spf13/cobra"
@@ -110,23 +111,11 @@ func flagStrategy(opts *MergeOptions) string {
 func mergeRun(opts *MergeOptions) error {
 	ctx := context.Background()
 
-	baseRepo, resolvedRemote, err := opts.BaseRepo()
+	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
-	client, err := opts.ApiClient()
-	if err != nil {
-		return err
-	}
-	gitRunner, err := opts.Git()
-	if err != nil {
-		return err
-	}
-
-	pr, repo, err := FindPR(ctx, client, gitRunner, baseRepo, opts.Arg)
-	if err != nil {
-		return err
-	}
+	pr, repo, client := found.PR, found.Repo, found.Client
 
 	if !strings.EqualFold(pr.State, "OPEN") {
 		return fmt.Errorf("pull request #%d is %s; only open pull requests can be merged",
@@ -147,7 +136,7 @@ func mergeRun(opts *MergeOptions) error {
 		}
 		fmt.Fprintf(opts.IO.ErrOut, "Merge pull request #%d (%s) into %s using %s? [Y/n] ",
 			pr.ID, pr.Title, pr.Destination.Branch.Name, strategy)
-		ans, err := readLine(opts.IO.In)
+		ans, err := shared.ReadLine(opts.IO.In)
 		if err != nil {
 			return err
 		}
@@ -167,10 +156,15 @@ func mergeRun(opts *MergeOptions) error {
 		return err
 	}
 
-	fmt.Fprintf(opts.IO.ErrOut, "%s Merged pull request #%d (%s)\n", successIcon(opts.IO), pr.ID, pr.Title)
+	fmt.Fprintf(opts.IO.ErrOut, "%s Merged pull request #%d (%s)\n", shared.SuccessIcon(opts.IO), pr.ID, pr.Title)
 
-	if opts.DeleteBranch && sameRepoPR(pr, baseRepo) {
-		_ = resolvedRemote // remote source branch is closed by the API
+	// The remote source branch is closed by the API; only the local branch
+	// is cleaned up, and only when this checkout has a remote for the repo.
+	if opts.DeleteBranch && found.Remote != nil && shared.SameRepoPR(pr, repo) {
+		gitRunner, err := opts.Git()
+		if err != nil {
+			return err
+		}
 		if err := deleteLocalSourceBranch(ctx, gitRunner, opts.IO, pr.Source.Branch.Name, pr.Destination.Branch.Name); err != nil {
 			return err
 		}

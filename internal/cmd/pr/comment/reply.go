@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mantas6/bh/internal/api"
+	"github.com/mantas6/bh/internal/cmd/pr/shared"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
 	"github.com/spf13/cobra"
@@ -37,7 +38,7 @@ func NewCmdReply(f *cmdutil.Factory, runF func(*ReplyOptions) error) *cobra.Comm
 	}
 
 	cmd := &cobra.Command{
-		Use:   "reply <number> <comment-id>",
+		Use:   "reply {<number> | <url> | <branch>} <comment-id>",
 		Short: "Reply to a pull request comment",
 		Args:  cmdutil.ExactArgs(2, "a pull request and a comment id are required"),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -74,23 +75,11 @@ func replyRun(opts *ReplyOptions) error {
 		return errors.New("comment body is required (use -b, -F, or pipe via stdin)")
 	}
 
-	repo, _, err := opts.BaseRepo()
+	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
-	client, err := opts.ApiClient()
-	if err != nil {
-		return err
-	}
-	gitRunner, err := opts.Git()
-	if err != nil {
-		return err
-	}
-
-	pr, repo, err := resolvePR(ctx, client, gitRunner, repo, opts.Arg)
-	if err != nil {
-		return err
-	}
+	pr, repo, client := found.PR, found.Repo, found.Client
 
 	comment, err := client.CreateComment(ctx, repo.FullName(), pr.ID, api.CommentInput{
 		Body:     body,

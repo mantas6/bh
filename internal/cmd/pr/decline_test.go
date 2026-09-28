@@ -121,3 +121,31 @@ func TestDeclineFlagParsingAndAlias(t *testing.T) {
 		t.Errorf("expected 'close' alias, got %v", cmd.Aliases)
 	}
 }
+
+func TestDeclineDeleteBranchWithoutRemoteErrors(t *testing.T) {
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, declinePR())
+
+	stub := gittest.New()
+	stub.FailUnstubbed = true
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := &DeclineOptions{
+		IO:           ios,
+		ApiClient:    func() (*api.Client, error) { return srv.Client(), nil },
+		Git:          gitFunc(stub),
+		BaseRepo:     baseRepoFunc(nil),
+		Arg:          "123",
+		DeleteBranch: true,
+	}
+	err := declineRun(opts)
+	if err == nil || !strings.Contains(err.Error(), "no git remote found for myws/myrepo") {
+		t.Fatalf("err = %v", err)
+	}
+	if findRequest(srv, "POST", "/pullrequests/123/decline") != nil {
+		t.Error("PR was declined despite the error")
+	}
+	if len(stub.Calls) != 0 {
+		t.Errorf("unexpected git calls: %v", stub.CallStrings())
+	}
+}

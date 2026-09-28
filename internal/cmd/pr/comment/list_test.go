@@ -190,3 +190,44 @@ func TestListFlagParsing(t *testing.T) {
 		t.Errorf("parsed = %+v", captured)
 	}
 }
+
+func TestListByBranchWithoutGit(t *testing.T) {
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200,
+		map[string]any{"values": []*api.PullRequest{samplePR()}})
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123/comments", 200,
+		map[string]any{"values": []api.Comment{commentAt(1, "ada", "hi", 5)}})
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newListOpts(srv, ios)
+	opts.Arg = "feature"
+	opts.Git = nil // a branch selector must not need git
+	if err := listRun(opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	if q := srv.Requests[0].Query.Get("q"); !strings.Contains(q, `source.branch.name="feature"`) {
+		t.Errorf("q = %q", q)
+	}
+	if !strings.Contains(out.String(), "#1 ada") {
+		t.Errorf("expected comment, got %q", out.String())
+	}
+}
+
+func TestListByURLWithoutGitOrBaseRepo(t *testing.T) {
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/other/repo/pullrequests/9", 200, samplePR())
+	srv.Handle("GET", "/repositories/other/repo/pullrequests/123/comments", 200,
+		map[string]any{"values": []api.Comment{commentAt(1, "ada", "hi", 5)}})
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newListOpts(srv, ios)
+	opts.Arg = "https://bitbucket.org/other/repo/pull-requests/9"
+	opts.Git = nil
+	opts.BaseRepo = nil
+	if err := listRun(opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	if !strings.Contains(out.String(), "#1 ada") {
+		t.Errorf("expected comment, got %q", out.String())
+	}
+}

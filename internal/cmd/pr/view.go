@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mantas6/bh/internal/api"
+	"github.com/mantas6/bh/internal/cmd/pr/shared"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
 	"github.com/mantas6/bh/internal/output"
@@ -64,23 +65,11 @@ func NewCmdView(f *cmdutil.Factory, runF func(*ViewOptions) error) *cobra.Comman
 func viewRun(opts *ViewOptions) error {
 	ctx := context.Background()
 
-	repo, _, err := opts.BaseRepo()
+	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
-	client, err := opts.ApiClient()
-	if err != nil {
-		return err
-	}
-	gitRunner, err := opts.Git()
-	if err != nil {
-		return err
-	}
-
-	pr, repo, err := FindPR(ctx, client, gitRunner, repo, opts.Arg)
-	if err != nil {
-		return err
-	}
+	pr := found.PR
 
 	if opts.Web {
 		u := pr.Links.HTML.Href
@@ -94,7 +83,7 @@ func viewRun(opts *ViewOptions) error {
 		return output.PrintJSON(opts.IO.Out, pr)
 	}
 
-	return printPRView(opts, repo, pr)
+	return printPRView(opts, found.Repo, pr)
 }
 
 func printPRView(opts *ViewOptions, baseRepo git.Repo, pr *api.PullRequest) error {
@@ -104,8 +93,7 @@ func printPRView(opts *ViewOptions, baseRepo git.Repo, pr *api.PullRequest) erro
 	fmt.Fprintf(out, "%s %s\n", cs.Bold(pr.Title), cs.Gray(fmt.Sprintf("#%d", pr.ID)))
 
 	srcPrefix := ""
-	if pr.Source.Repository != nil && baseRepo.FullName() != "" &&
-		!strings.EqualFold(pr.Source.Repository.FullName, baseRepo.FullName()) {
+	if pr.Source.Repository != nil && baseRepo.FullName() != "" && !shared.SameRepoPR(pr, baseRepo) {
 		srcPrefix = pr.Source.Repository.FullName + ":"
 	}
 
@@ -116,7 +104,7 @@ func printPRView(opts *ViewOptions, baseRepo git.Repo, pr *api.PullRequest) erro
 
 	fmt.Fprintf(out, "%s • %s wants to merge %s%s into %s • %s\n",
 		cs.StateColor(pr.State),
-		prAuthor(pr),
+		shared.PRAuthor(pr),
 		srcPrefix,
 		pr.Source.Branch.Name,
 		pr.Destination.Branch.Name,
@@ -151,10 +139,7 @@ func reviewerLines(pr *api.PullRequest, cs *output.ColorScheme) string {
 		if !strings.EqualFold(p.Role, "REVIEWER") {
 			continue
 		}
-		name := p.User.DisplayName
-		if name == "" {
-			name = p.User.Nickname
-		}
+		name := shared.UserName(&p.User)
 		var status string
 		switch {
 		case p.Approved || strings.EqualFold(p.State, "approved"):

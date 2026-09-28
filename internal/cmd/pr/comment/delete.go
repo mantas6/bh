@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mantas6/bh/internal/api"
+	"github.com/mantas6/bh/internal/cmd/pr/shared"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
 	"github.com/spf13/cobra"
@@ -37,7 +38,7 @@ func NewCmdDelete(f *cmdutil.Factory, runF func(*DeleteOptions) error) *cobra.Co
 	}
 
 	cmd := &cobra.Command{
-		Use:   "delete <number> <comment-id>",
+		Use:   "delete {<number> | <url> | <branch>} <comment-id>",
 		Short: "Delete a pull request comment",
 		Args:  cmdutil.ExactArgs(2, "a pull request and a comment id are required"),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -67,7 +68,7 @@ func deleteRun(opts *DeleteOptions) error {
 			return errors.New("--yes required when not running interactively")
 		}
 		fmt.Fprintf(opts.IO.ErrOut, "Delete comment #%d? [y/N] ", opts.CommentID)
-		ans, err := readLine(opts.IO.In)
+		ans, err := shared.ReadLine(opts.IO.In)
 		if err != nil {
 			return err
 		}
@@ -79,28 +80,16 @@ func deleteRun(opts *DeleteOptions) error {
 		}
 	}
 
-	repo, _, err := opts.BaseRepo()
+	found, err := shared.NewFinder(opts.BaseRepo, opts.ApiClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
-	client, err := opts.ApiClient()
-	if err != nil {
-		return err
-	}
-	gitRunner, err := opts.Git()
-	if err != nil {
-		return err
-	}
-
-	pr, repo, err := resolvePR(ctx, client, gitRunner, repo, opts.Arg)
-	if err != nil {
-		return err
-	}
+	pr, repo, client := found.PR, found.Repo, found.Client
 
 	if err := client.DeleteComment(ctx, repo.FullName(), pr.ID, opts.CommentID); err != nil {
 		return err
 	}
 
-	fmt.Fprintf(opts.IO.ErrOut, "%s Deleted comment #%d\n", successIcon(opts.IO), opts.CommentID)
+	fmt.Fprintf(opts.IO.ErrOut, "%s Deleted comment #%d\n", shared.SuccessIcon(opts.IO), opts.CommentID)
 	return nil
 }
