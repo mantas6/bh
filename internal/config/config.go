@@ -9,13 +9,14 @@ import (
 	"path/filepath"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/mantas6/bh/internal/api"
 )
 
 const (
-	// DefaultHost is the default Bitbucket Cloud host.
-	DefaultHost = "bitbucket.org"
-	// DefaultAPIBase is the base URL for the Bitbucket Cloud REST 2.0 API.
-	DefaultAPIBase = "https://api.bitbucket.org/2.0"
+	// DefaultHost is the default Bitbucket Cloud host, used as the key for
+	// stored credentials.
+	DefaultHost = api.DefaultHost
 
 	hostsFile = "hosts.yml"
 )

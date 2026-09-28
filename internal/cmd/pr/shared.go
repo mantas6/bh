@@ -154,20 +154,21 @@ func deleteLocalSourceBranch(ctx context.Context, g git.Runner, ios *cmdutil.IOS
 		return err
 	}
 
-	switch {
-	case current == source:
+	if current == source {
 		if err := git.Checkout(ctx, g, dest); err != nil {
 			return err
 		}
-		if err := git.DeleteLocalBranch(ctx, g, source); err != nil {
+	} else {
+		exists, err := git.HasLocalBranch(ctx, g, source)
+		if err != nil {
 			return err
 		}
-	case git.HasLocalBranch(ctx, g, source):
-		if err := git.DeleteLocalBranch(ctx, g, source); err != nil {
-			return err
+		if !exists {
+			return nil
 		}
-	default:
-		return nil
+	}
+	if err := git.DeleteLocalBranch(ctx, g, source); err != nil {
+		return err
 	}
 
 	fmt.Fprintf(ios.ErrOut, "%s Deleted local branch %s\n", successIcon(ios), source)

@@ -27,7 +27,7 @@ func NewCmdStatus(f *cmdutil.Factory, runF func(*StatusOptions) error) *cobra.Co
 		IO:     f.IOStreams,
 		Config: f.Config,
 		ApiClientFor: func(token, email string) *api.Client {
-			c := api.NewClient(config.DefaultAPIBase, token, email)
+			c := api.NewClient(api.DefaultBaseURL, token, email)
 			c.UserAgent = "bh/" + f.Version
 			return c
 		},

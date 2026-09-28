@@ -22,21 +22,29 @@ var ErrNotOnBranch = errors.New("not currently on any branch")
 // RunInteractive passes through the process stdio so progress and prompts are
 // visible (used for push/fetch/checkout).
 type Runner interface {
-	// Run executes git with args, returning captured stdout with the trailing
-	// newline trimmed. A non-zero exit returns a *GitError.
+	// Run executes git with args, returning captured stdout with trailing
+	// newlines trimmed (see TrimOutput). A non-zero exit returns an *Error.
 	Run(ctx context.Context, args ...string) (stdout string, err error)
-	// RunInteractive executes git with args wired to the caller's stdio.
+	// RunInteractive executes git with args wired to the caller's stdio. A
+	// non-zero exit returns an *Error without Stderr.
 	RunInteractive(ctx context.Context, args ...string) error
 }
 
-// GitError describes a git invocation that exited non-zero.
-type GitError struct {
+// TrimOutput applies the Runner.Run output contract: trailing newlines (and
+// carriage returns) are removed, everything else is preserved. Fake runners
+// should use it so they behave like Client.
+func TrimOutput(s string) string {
+	return strings.TrimRight(s, "\r\n")
+}
+
+// Error describes a git invocation that exited non-zero.
+type Error struct {
 	Args     []string
 	ExitCode int
 	Stderr   string
 }
 
-func (e *GitError) Error() string {
+func (e *Error) Error() string {
 	cmd := "git " + strings.Join(e.Args, " ")
 	stderr := strings.TrimSpace(e.Stderr)
 	if stderr != "" {
@@ -51,63 +59,71 @@ type Client struct {
 	GitPath string
 	// Dir, when set, is used as the working directory.
 	Dir string
+	// Env, when non-empty, is appended to the current process environment
+	// for every git invocation (e.g. "GIT_CONFIG_NOSYSTEM=1").
+	Env []string
 	// Stdin, Stdout, Stderr are used for interactive commands.
 	Stdin          io.Reader
 	Stdout, Stderr io.Writer
 }
 
-func (c *Client) gitPath() string {
-	if c.GitPath == "" {
-		return "git"
+func (c *Client) command(ctx context.Context, args []string) *exec.Cmd {
+	path := c.GitPath
+	if path == "" {
+		path = "git"
 	}
-	return c.GitPath
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Dir = c.Dir
+	if len(c.Env) > 0 {
+		cmd.Env = append(cmd.Environ(), c.Env...)
+	}
+	return cmd
 }
 
 // Run implements Runner.
 func (c *Client) Run(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, c.gitPath(), args...)
-	cmd.Dir = c.Dir
+	cmd := c.command(ctx, args)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return "", &GitError{
-				Args:     args,
-				ExitCode: exitErr.ExitCode(),
-				Stderr:   stderr.String(),
-			}
-		}
-		return "", err
+	if err := cmd.Run(); err != nil {
+		return "", runError(ctx, args, stderr.String(), err)
 	}
-	return strings.TrimRight(stdout.String(), "\n"), nil
+	return TrimOutput(stdout.String()), nil
 }
 
 // RunInteractive implements Runner.
 func (c *Client) RunInteractive(ctx context.Context, args ...string) error {
-	cmd := exec.CommandContext(ctx, c.gitPath(), args...)
-	cmd.Dir = c.Dir
+	cmd := c.command(ctx, args)
 	cmd.Stdin = c.Stdin
 	cmd.Stdout = c.Stdout
 	cmd.Stderr = c.Stderr
 
-	err := cmd.Run()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return &GitError{Args: args, ExitCode: exitErr.ExitCode()}
-		}
-		return err
+	if err := cmd.Run(); err != nil {
+		return runError(ctx, args, "", err)
 	}
 	return nil
 }
 
-// exitCode returns the exit code of a *GitError, or -1 when err is not one.
+// runError converts an exec error into the error returned by Client. A
+// cancelled or expired context takes precedence (the process was killed, so
+// its exit status is meaningless); a non-zero exit becomes an *Error; any
+// other failure (e.g. git not found) is wrapped with the argv for context.
+func runError(ctx context.Context, args []string, stderr string, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("git %s: %w", strings.Join(args, " "), ctxErr)
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return &Error{Args: args, ExitCode: exitErr.ExitCode(), Stderr: stderr}
+	}
+	return fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+}
+
+// exitCode returns the exit code of an *Error, or -1 when err is not one.
 func exitCode(err error) int {
-	var ge *GitError
+	var ge *Error
 	if errors.As(err, &ge) {
 		return ge.ExitCode
 	}
@@ -196,11 +212,10 @@ func CurrentBranch(ctx context.Context, r Runner) (string, error) {
 		}
 		return "", err
 	}
-	branch := strings.TrimSpace(out)
-	if branch == "" {
+	if out == "" {
 		return "", ErrNotOnBranch
 	}
-	return branch, nil
+	return out, nil
 }
 
 // BranchUpstream returns the configured remote and merge ref for a branch.
@@ -217,25 +232,41 @@ func BranchUpstream(ctx context.Context, r Runner, branch string) (remote, merge
 	return remote, mergeRef, nil
 }
 
+// notFound maps the exit codes git uses for "no such ref" (1 from
+// `rev-parse --verify --quiet`, 2 from `ls-remote --exit-code`) to false with
+// a nil error; any other failure is returned as-is.
+func notFound(err error) (bool, error) {
+	if err == nil {
+		return true, nil
+	}
+	switch exitCode(err) {
+	case 1, 2:
+		return false, nil
+	}
+	return false, err
+}
+
 // HasLocalBranch reports whether a local branch with the given name exists.
-func HasLocalBranch(ctx context.Context, r Runner, name string) bool {
+func HasLocalBranch(ctx context.Context, r Runner, name string) (bool, error) {
 	_, err := r.Run(ctx, "rev-parse", "--verify", "--quiet", "refs/heads/"+name)
-	return err == nil
+	return notFound(err)
 }
 
-// RemoteBranchExists reports whether the branch exists on the remote.
-func RemoteBranchExists(ctx context.Context, r Runner, remote, branch string) bool {
-	_, err := r.Run(ctx, "ls-remote", "--exit-code", "--heads", remote, branch)
-	return err == nil
+// RemoteBranchExists reports whether the branch exists on the remote. The
+// fully qualified ref is queried so that "feature" does not match
+// "refs/heads/foo/feature".
+func RemoteBranchExists(ctx context.Context, r Runner, remote, branch string) (bool, error) {
+	_, err := r.Run(ctx, "ls-remote", "--exit-code", "--heads", remote, "refs/heads/"+branch)
+	return notFound(err)
 }
 
-// IsAhead returns the number of commits branch is ahead of upstreamRef.
-func IsAhead(ctx context.Context, r Runner, branch, upstreamRef string) (int, error) {
+// AheadCount returns the number of commits branch is ahead of upstreamRef.
+func AheadCount(ctx context.Context, r Runner, branch, upstreamRef string) (int, error) {
 	out, err := r.Run(ctx, "rev-list", "--count", upstreamRef+".."+branch)
 	if err != nil {
 		return 0, err
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(out))
+	n, err := strconv.Atoi(out)
 	if err != nil {
 		return 0, fmt.Errorf("parsing rev-list count %q: %w", out, err)
 	}
@@ -249,9 +280,13 @@ type Commit struct {
 	Body    string
 }
 
-// Commits returns the commits in base..head, newest first.
+// Commits returns the commits in base..head, newest first. An empty base is
+// an error: "..head" would silently mean "HEAD..head".
 func Commits(ctx context.Context, r Runner, base, head string) ([]Commit, error) {
-	out, err := r.Run(ctx, "log", "--pretty=format:%H%x00%s%x00%b%x1e", base+".."+head)
+	if base == "" {
+		return nil, errors.New("listing commits: base ref is empty")
+	}
+	out, err := r.Run(ctx, "log", "--pretty=format:%H%x00%s%x00%b%x1e", "--end-of-options", base+".."+head)
 	if err != nil {
 		return nil, err
 	}
@@ -284,12 +319,12 @@ func parseCommits(out string) []Commit {
 
 // Push runs an interactive `git push -u <remote> <branch>`.
 func Push(ctx context.Context, r Runner, remote, branch string) error {
-	return r.RunInteractive(ctx, "push", "-u", remote, branch)
+	return r.RunInteractive(ctx, "push", "-u", "--end-of-options", remote, branch)
 }
 
 // Fetch runs an interactive `git fetch <remote> [refspec]`.
 func Fetch(ctx context.Context, r Runner, remote, refspec string) error {
-	args := []string{"fetch", remote}
+	args := []string{"fetch", "--end-of-options", remote}
 	if refspec != "" {
 		args = append(args, refspec)
 	}
@@ -298,7 +333,7 @@ func Fetch(ctx context.Context, r Runner, remote, refspec string) error {
 
 // Checkout runs an interactive `git checkout <ref>`.
 func Checkout(ctx context.Context, r Runner, ref string) error {
-	return r.RunInteractive(ctx, "checkout", ref)
+	return r.RunInteractive(ctx, "checkout", "--end-of-options", ref)
 }
 
 // CheckoutNewBranch runs an interactive `git checkout -b <name> [extra...]`,
@@ -315,7 +350,7 @@ func CheckoutDetach(ctx context.Context, r Runner, ref string) error {
 
 // ResetHard runs an interactive `git reset --hard <ref>`.
 func ResetHard(ctx context.Context, r Runner, ref string) error {
-	return r.RunInteractive(ctx, "reset", "--hard", ref)
+	return r.RunInteractive(ctx, "reset", "--hard", "--end-of-options", ref)
 }
 
 // MergeFFOnly runs an interactive `git merge --ff-only <ref>`.
@@ -325,7 +360,7 @@ func MergeFFOnly(ctx context.Context, r Runner, ref string) error {
 
 // DeleteLocalBranch runs an interactive `git branch -D <name>`.
 func DeleteLocalBranch(ctx context.Context, r Runner, name string) error {
-	return r.RunInteractive(ctx, "branch", "-D", name)
+	return r.RunInteractive(ctx, "branch", "-D", "--end-of-options", name)
 }
 
 // PushDelete runs an interactive `git push <remote> --delete <branch>`.
@@ -349,5 +384,5 @@ func GetConfig(ctx context.Context, r Runner, key string) (string, error) {
 		}
 		return "", err
 	}
-	return strings.TrimSpace(out), nil
+	return out, nil
 }

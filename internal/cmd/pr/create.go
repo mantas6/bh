@@ -244,7 +244,11 @@ func ensurePushed(ctx context.Context, opts *CreateOptions, gitRunner git.Runner
 	}
 
 	if upRemote == "" {
-		if git.RemoteBranchExists(ctx, gitRunner, remote, head) {
+		exists, err := git.RemoteBranchExists(ctx, gitRunner, remote, head)
+		if err != nil {
+			return err
+		}
+		if exists {
 			return nil
 		}
 		if opts.Push {
@@ -275,7 +279,7 @@ func ensurePushed(ctx context.Context, opts *CreateOptions, gitRunner git.Runner
 		upBranch = head
 	}
 	upstreamRef := upRemote + "/" + upBranch
-	ahead, err := git.IsAhead(ctx, gitRunner, head, upstreamRef)
+	ahead, err := git.AheadCount(ctx, gitRunner, head, upstreamRef)
 	if err != nil {
 		return err
 	}

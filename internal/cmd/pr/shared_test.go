@@ -5,7 +5,6 @@ import (
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
-	"github.com/mantas6/bh/internal/git"
 	"github.com/mantas6/bh/internal/git/gittest"
 )
 
@@ -90,7 +89,7 @@ func TestFindPRDetachedHead(t *testing.T) {
 	srv := apitest.New(t)
 
 	stub := gittest.New()
-	stub.Register("", &git.GitError{ExitCode: 1}, "symbolic-ref", "--quiet", "--short", "HEAD")
+	stub.Register("", gittest.Exit(1), "symbolic-ref", "--quiet", "--short", "HEAD")
 
 	_, _, err := FindPR(t.Context(), srv.Client(), stub, testRepo(), "")
 	if err == nil || err.Error() != "no pull request specified and not on a branch" {

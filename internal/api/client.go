@@ -16,8 +16,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+)
 
-	"github.com/mantas6/bh/internal/config"
+const (
+	// DefaultHost is the canonical Bitbucket Cloud host.
+	DefaultHost = "bitbucket.org"
+	// DefaultBaseURL is the base URL for the Bitbucket Cloud REST 2.0 API.
+	DefaultBaseURL = "https://api.bitbucket.org/2.0"
 )
 
 // Client is a Bitbucket Cloud REST 2.0 client.
@@ -40,10 +45,10 @@ type Client struct {
 }
 
 // NewClient builds a Client. An empty baseURL defaults to
-// config.DefaultAPIBase. token/email may be empty for anonymous use.
+// DefaultBaseURL. token/email may be empty for anonymous use.
 func NewClient(baseURL, token, email string) *Client {
 	if baseURL == "" {
-		baseURL = config.DefaultAPIBase
+		baseURL = DefaultBaseURL
 	}
 	return &Client{
 		BaseURL:         strings.TrimRight(baseURL, "/"),

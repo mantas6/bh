@@ -43,7 +43,7 @@ func NewCmdLogin(f *cmdutil.Factory, runF func(*LoginOptions) error) *cobra.Comm
 		IO:     f.IOStreams,
 		Config: f.Config,
 		ApiClientFor: func(token, email string) *api.Client {
-			c := api.NewClient(config.DefaultAPIBase, token, email)
+			c := api.NewClient(api.DefaultBaseURL, token, email)
 			c.UserAgent = "bh/" + f.Version
 			return c
 		},

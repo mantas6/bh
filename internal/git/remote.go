@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-)
 
-// bitbucketHost is the canonical Bitbucket Cloud host.
-const bitbucketHost = "bitbucket.org"
+	"github.com/mantas6/bh/internal/api"
+)
 
 // Repo identifies a Bitbucket repository.
 type Repo struct {
@@ -37,8 +36,8 @@ func normalizeHost(host string) (string, bool) {
 		host = host[:i]
 	}
 	switch host {
-	case bitbucketHost, "altssh.bitbucket.org":
-		return bitbucketHost, true
+	case api.DefaultHost, "altssh.bitbucket.org":
+		return api.DefaultHost, true
 	}
 	return host, false
 }
@@ -162,7 +161,7 @@ func ParseRepoArg(s string) (Repo, error) {
 	}
 
 	// "[HOST/]OWNER/REPO" shorthand.
-	host := bitbucketHost
+	host := api.DefaultHost
 	p := s
 	if parts := strings.Split(s, "/"); len(parts) == 3 {
 		if parts[0] == "" {

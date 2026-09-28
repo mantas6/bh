@@ -100,7 +100,7 @@ func TestCreateAutoPushTTYYes(t *testing.T) {
 
 	stub := gittest.New()
 	// Branch not on remote -> push path.
-	stub.Register("", &git.GitError{ExitCode: 2}, "ls-remote", "--exit-code", "--heads", "origin", "feature")
+	stub.Register("", gittest.Exit(2), "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/feature")
 
 	ios, in, _, _ := cmdutil.TestIOStreams()
 	ios.SetStdinTTY(true)
@@ -120,7 +120,7 @@ func TestCreateAutoPushTTYYes(t *testing.T) {
 		t.Fatalf("createRun: %v", err)
 	}
 
-	if len(stub.Interactive) != 1 || strings.Join(stub.Interactive[0], " ") != "push -u origin feature" {
+	if len(stub.Interactive) != 1 || strings.Join(stub.Interactive[0], " ") != "push -u --end-of-options origin feature" {
 		t.Errorf("push argv = %v", stub.Interactive)
 	}
 }
@@ -129,7 +129,7 @@ func TestCreateNonTTYNoPushErrors(t *testing.T) {
 	srv := apitest.New(t)
 
 	stub := gittest.New()
-	stub.Register("", &git.GitError{ExitCode: 2}, "ls-remote", "--exit-code", "--heads", "origin", "feature")
+	stub.Register("", gittest.Exit(2), "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/feature")
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
@@ -156,7 +156,7 @@ func TestCreateNonTTYWithPush(t *testing.T) {
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
 
 	stub := gittest.New()
-	stub.Register("", &git.GitError{ExitCode: 2}, "ls-remote", "--exit-code", "--heads", "origin", "feature")
+	stub.Register("", gittest.Exit(2), "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/feature")
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
@@ -173,7 +173,7 @@ func TestCreateNonTTYWithPush(t *testing.T) {
 	if err := createRun(opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
-	if len(stub.Interactive) != 1 || strings.Join(stub.Interactive[0], " ") != "push -u origin feature" {
+	if len(stub.Interactive) != 1 || strings.Join(stub.Interactive[0], " ") != "push -u --end-of-options origin feature" {
 		t.Errorf("push argv = %v", stub.Interactive)
 	}
 }
@@ -220,7 +220,7 @@ func TestCreateFillSingleCommit(t *testing.T) {
 	stub := gittest.New()
 	// git.Commits log for main..feature -> one commit.
 	stub.Register("abc\x00Fix the bug\x00Detailed body\x1e", nil,
-		"log", "--pretty=format:%H%x00%s%x00%b%x1e", "main..feature")
+		"log", "--pretty=format:%H%x00%s%x00%b%x1e", "--end-of-options", "main..feature")
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{

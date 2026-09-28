@@ -7,7 +7,18 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/mantas6/bh/internal/git"
 )
+
+var _ git.Runner = (*Stub)(nil)
+
+// Exit returns the error a git.Runner reports when git exits with status
+// code, for stubbing responses such as "unset config key" (1) or "no
+// matching remote ref" (2).
+func Exit(code int) error {
+	return &git.Error{ExitCode: code}
+}
 
 // Response is a stubbed result for a single git invocation.
 type Response struct {
@@ -50,12 +61,13 @@ func (s *Stub) Expect(args ...string) *Stub {
 	return s.Register("", nil, args...)
 }
 
-// Run implements git.Runner.
+// Run implements git.Runner. Like git.Client, trailing newlines are trimmed
+// from the stubbed stdout.
 func (s *Stub) Run(_ context.Context, args ...string) (string, error) {
 	s.Calls = append(s.Calls, args)
 	key := strings.Join(args, " ")
 	if resp, ok := lookup(s.Responses, key); ok {
-		return resp.Stdout, resp.Err
+		return git.TrimOutput(resp.Stdout), resp.Err
 	}
 	if s.FailUnstubbed {
 		return "", fmt.Errorf("gittest: no stubbed response for %q", "git "+key)

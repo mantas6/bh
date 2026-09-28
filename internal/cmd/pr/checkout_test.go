@@ -68,12 +68,12 @@ func assertCalls(t *testing.T, got, want []string) {
 
 func TestCheckoutSameRepoNewBranch(t *testing.T) {
 	stub := gittest.New()
-	stub.Register("", &git.GitError{ExitCode: 1}, "rev-parse", "--verify", "--quiet", "refs/heads/feature")
+	stub.Register("", gittest.Exit(1), "rev-parse", "--verify", "--quiet", "refs/heads/feature")
 
 	runCheckout(t, checkoutPR(), originRemote(), stub, nil)
 
 	assertCalls(t, stub.CallStrings(), []string{
-		"fetch origin +refs/heads/feature:refs/remotes/origin/feature",
+		"fetch --end-of-options origin +refs/heads/feature:refs/remotes/origin/feature",
 		"rev-parse --verify --quiet refs/heads/feature",
 		"checkout -b feature --track origin/feature",
 	})
@@ -87,9 +87,9 @@ func TestCheckoutSameRepoExistingBranch(t *testing.T) {
 	runCheckout(t, checkoutPR(), originRemote(), stub, nil)
 
 	assertCalls(t, stub.CallStrings(), []string{
-		"fetch origin +refs/heads/feature:refs/remotes/origin/feature",
+		"fetch --end-of-options origin +refs/heads/feature:refs/remotes/origin/feature",
 		"rev-parse --verify --quiet refs/heads/feature",
-		"checkout feature",
+		"checkout --end-of-options feature",
 		"merge --ff-only origin/feature",
 	})
 }
@@ -103,10 +103,10 @@ func TestCheckoutSameRepoExistingBranchForce(t *testing.T) {
 	})
 
 	assertCalls(t, stub.CallStrings(), []string{
-		"fetch origin +refs/heads/feature:refs/remotes/origin/feature",
+		"fetch --end-of-options origin +refs/heads/feature:refs/remotes/origin/feature",
 		"rev-parse --verify --quiet refs/heads/feature",
-		"checkout feature",
-		"reset --hard origin/feature",
+		"checkout --end-of-options feature",
+		"reset --hard --end-of-options origin/feature",
 	})
 }
 
@@ -118,21 +118,21 @@ func TestCheckoutSameRepoDetach(t *testing.T) {
 	})
 
 	assertCalls(t, stub.CallStrings(), []string{
-		"fetch origin feature",
+		"fetch --end-of-options origin feature",
 		"checkout --detach FETCH_HEAD",
 	})
 }
 
 func TestCheckoutSameRepoBranchName(t *testing.T) {
 	stub := gittest.New()
-	stub.Register("", &git.GitError{ExitCode: 1}, "rev-parse", "--verify", "--quiet", "refs/heads/mine")
+	stub.Register("", gittest.Exit(1), "rev-parse", "--verify", "--quiet", "refs/heads/mine")
 
 	runCheckout(t, checkoutPR(), originRemote(), stub, func(o *CheckoutOptions) {
 		o.Branch = "mine"
 	})
 
 	assertCalls(t, stub.CallStrings(), []string{
-		"fetch origin +refs/heads/feature:refs/remotes/origin/feature",
+		"fetch --end-of-options origin +refs/heads/feature:refs/remotes/origin/feature",
 		"rev-parse --verify --quiet refs/heads/mine",
 		"checkout -b mine --track origin/feature",
 	})
@@ -140,7 +140,7 @@ func TestCheckoutSameRepoBranchName(t *testing.T) {
 
 func TestCheckoutForkSSH(t *testing.T) {
 	stub := gittest.New()
-	stub.Register("", &git.GitError{ExitCode: 1}, "rev-parse", "--verify", "--quiet", "refs/heads/feature")
+	stub.Register("", gittest.Exit(1), "rev-parse", "--verify", "--quiet", "refs/heads/feature")
 
 	rr := &git.ResolvedRemote{
 		Remote: git.Remote{Name: "origin", FetchURL: "git@bitbucket.org:myws/myrepo.git"},
@@ -149,7 +149,7 @@ func TestCheckoutForkSSH(t *testing.T) {
 	runCheckout(t, forkPR(), rr, stub, nil)
 
 	assertCalls(t, stub.CallStrings(), []string{
-		"fetch git@bitbucket.org:forkws/myrepo.git +refs/heads/feature:refs/remotes/forkws/feature",
+		"fetch --end-of-options git@bitbucket.org:forkws/myrepo.git +refs/heads/feature:refs/remotes/forkws/feature",
 		"rev-parse --verify --quiet refs/heads/feature",
 		"checkout -b feature --no-track refs/remotes/forkws/feature",
 		"config branch.feature.remote git@bitbucket.org:forkws/myrepo.git",
@@ -159,7 +159,7 @@ func TestCheckoutForkSSH(t *testing.T) {
 
 func TestCheckoutForkHTTPS(t *testing.T) {
 	stub := gittest.New()
-	stub.Register("", &git.GitError{ExitCode: 1}, "rev-parse", "--verify", "--quiet", "refs/heads/feature")
+	stub.Register("", gittest.Exit(1), "rev-parse", "--verify", "--quiet", "refs/heads/feature")
 
 	rr := &git.ResolvedRemote{
 		Remote: git.Remote{Name: "origin", FetchURL: "https://bitbucket.org/myws/myrepo.git"},
@@ -168,7 +168,7 @@ func TestCheckoutForkHTTPS(t *testing.T) {
 	runCheckout(t, forkPR(), rr, stub, nil)
 
 	assertCalls(t, stub.CallStrings(), []string{
-		"fetch https://bitbucket.org/forkws/myrepo.git +refs/heads/feature:refs/remotes/forkws/feature",
+		"fetch --end-of-options https://bitbucket.org/forkws/myrepo.git +refs/heads/feature:refs/remotes/forkws/feature",
 		"rev-parse --verify --quiet refs/heads/feature",
 		"checkout -b feature --no-track refs/remotes/forkws/feature",
 		"config branch.feature.remote https://bitbucket.org/forkws/myrepo.git",
@@ -187,7 +187,7 @@ func TestCheckoutForkDetach(t *testing.T) {
 	})
 
 	assertCalls(t, stub.CallStrings(), []string{
-		"fetch https://bitbucket.org/forkws/myrepo.git +refs/heads/feature:refs/remotes/forkws/feature",
+		"fetch --end-of-options https://bitbucket.org/forkws/myrepo.git +refs/heads/feature:refs/remotes/forkws/feature",
 		"checkout --detach refs/remotes/forkws/feature",
 	})
 }
@@ -200,7 +200,7 @@ func TestCheckoutForkSynthesizedURL(t *testing.T) {
 	pr.Destination.Branch.Name = "main"
 
 	stub := gittest.New()
-	stub.Register("", &git.GitError{ExitCode: 1}, "rev-parse", "--verify", "--quiet", "refs/heads/feature")
+	stub.Register("", gittest.Exit(1), "rev-parse", "--verify", "--quiet", "refs/heads/feature")
 
 	rr := &git.ResolvedRemote{
 		Remote: git.Remote{Name: "origin", FetchURL: "ssh://git@bitbucket.org/myws/myrepo.git"},
@@ -209,7 +209,7 @@ func TestCheckoutForkSynthesizedURL(t *testing.T) {
 	runCheckout(t, pr, rr, stub, nil)
 
 	assertCalls(t, stub.CallStrings(), []string{
-		"fetch git@bitbucket.org:forkws/myrepo.git +refs/heads/feature:refs/remotes/forkws/feature",
+		"fetch --end-of-options git@bitbucket.org:forkws/myrepo.git +refs/heads/feature:refs/remotes/forkws/feature",
 		"rev-parse --verify --quiet refs/heads/feature",
 		"checkout -b feature --no-track refs/remotes/forkws/feature",
 		"config branch.feature.remote git@bitbucket.org:forkws/myrepo.git",

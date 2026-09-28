@@ -125,7 +125,11 @@ func checkoutSameRepo(ctx context.Context, opts *CheckoutOptions, g git.Runner, 
 	}
 
 	remoteRef := remote + "/" + branch
-	if git.HasLocalBranch(ctx, g, localName) {
+	exists, err := git.HasLocalBranch(ctx, g, localName)
+	if err != nil {
+		return err
+	}
+	if exists {
 		if err := git.Checkout(ctx, g, localName); err != nil {
 			return err
 		}
@@ -156,7 +160,11 @@ func checkoutFork(ctx context.Context, opts *CheckoutOptions, g git.Runner, rr *
 		return git.CheckoutDetach(ctx, g, forkRef)
 	}
 
-	if git.HasLocalBranch(ctx, g, localName) {
+	exists, err := git.HasLocalBranch(ctx, g, localName)
+	if err != nil {
+		return err
+	}
+	if exists {
 		if err := git.Checkout(ctx, g, localName); err != nil {
 			return err
 		}

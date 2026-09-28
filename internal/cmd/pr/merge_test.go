@@ -163,8 +163,8 @@ func TestMergeDeleteBranchLocalCleanup(t *testing.T) {
 
 	assertCalls(t, stub.CallStrings(), []string{
 		"symbolic-ref --quiet --short HEAD",
-		"checkout main",
-		"branch -D feature",
+		"checkout --end-of-options main",
+		"branch -D --end-of-options feature",
 	})
 	if !strings.Contains(errOut.String(), "Deleted local branch feature") {
 		t.Errorf("cleanup message missing: %q", errOut.String())

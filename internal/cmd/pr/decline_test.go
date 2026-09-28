@@ -66,8 +66,8 @@ func TestDeclineDeleteBranch(t *testing.T) {
 
 	assertCalls(t, stub.CallStrings(), []string{
 		"symbolic-ref --quiet --short HEAD",
-		"checkout main",
-		"branch -D feature",
+		"checkout --end-of-options main",
+		"branch -D --end-of-options feature",
 		"push origin --delete feature",
 	})
 }

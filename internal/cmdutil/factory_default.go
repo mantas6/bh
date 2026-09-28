@@ -60,7 +60,7 @@ func NewFactory(version string) *Factory {
 			if token == "" {
 				return nil, api.ErrNoToken
 			}
-			client := api.NewClient(config.DefaultAPIBase, token, cfg.Email(host))
+			client := api.NewClient(api.DefaultBaseURL, token, cfg.Email(host))
 			client.UserAgent = "bh/" + version
 			return client, nil
 		},
