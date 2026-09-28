@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -40,7 +41,7 @@ func samplePR() *api.PullRequest {
 func newFinder(t *testing.T, srv *apitest.Server, stub *gittest.Stub) *Finder {
 	t.Helper()
 	return NewFinder(
-		func() (git.Repo, *git.ResolvedRemote, error) { return testRepo(), originRemote(), nil },
+		func(context.Context) (git.Repo, *git.ResolvedRemote, error) { return testRepo(), originRemote(), nil },
 		func() (*api.Client, error) { return srv.Client(), nil },
 		func() (git.Runner, error) {
 			if stub == nil {
@@ -154,7 +155,7 @@ func TestFindByURLNeedsNoGitOrBaseRepo(t *testing.T) {
 	srv.Handle("GET", "/repositories/other/repo/pullrequests/7", 200, samplePR())
 
 	f := NewFinder(
-		func() (git.Repo, *git.ResolvedRemote, error) {
+		func(context.Context) (git.Repo, *git.ResolvedRemote, error) {
 			t.Error("BaseRepo should not be called for a URL")
 			return git.Repo{}, nil, errors.New("not a git repository")
 		},
@@ -247,7 +248,7 @@ func TestFindCurrentBranchGitUnavailable(t *testing.T) {
 	srv := apitest.New(t)
 
 	f := NewFinder(
-		func() (git.Repo, *git.ResolvedRemote, error) { return testRepo(), nil, nil },
+		func(context.Context) (git.Repo, *git.ResolvedRemote, error) { return testRepo(), nil, nil },
 		func() (*api.Client, error) { return srv.Client(), nil },
 		func() (git.Runner, error) { return nil, errors.New("git executable not found") },
 	)

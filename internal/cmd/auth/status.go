@@ -36,7 +36,7 @@ func NewCmdStatus(f *cmdutil.Factory, runF func(*StatusOptions) error) *cobra.Co
 			if runF != nil {
 				return runF(opts)
 			}
-			return statusRun(opts)
+			return statusRun(cmd.Context(), opts)
 		},
 	}
 
@@ -45,7 +45,7 @@ func NewCmdStatus(f *cmdutil.Factory, runF func(*StatusOptions) error) *cobra.Co
 	return cmd
 }
 
-func statusRun(opts *StatusOptions) error {
+func statusRun(ctx context.Context, opts *StatusOptions) error {
 	cfg, err := opts.Config()
 	if err != nil {
 		return err
@@ -59,7 +59,7 @@ func statusRun(opts *StatusOptions) error {
 	email := cfg.Email(host)
 
 	client := opts.APIClientFor(token, email)
-	user, err := client.CurrentUser(context.Background())
+	user, err := client.CurrentUser(ctx)
 	if err != nil {
 		// Only a 401 means the token itself is bad; anything else (network
 		// failure, 403, 5xx) is reported as an ordinary error.

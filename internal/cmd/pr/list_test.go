@@ -28,7 +28,7 @@ func TestListNonTTY(t *testing.T) {
 	opts := newListOptions(srv)
 	opts.IO = ios
 
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 
@@ -50,7 +50,7 @@ func TestListTTYHeader(t *testing.T) {
 	opts := newListOptions(srv)
 	opts.IO = ios
 
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 
@@ -69,7 +69,7 @@ func TestListEmptyTTY(t *testing.T) {
 	opts := newListOptions(srv)
 	opts.IO = ios
 
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	if !strings.Contains(out.String(), "No pull requests match your search in myws/myrepo") {
@@ -86,7 +86,7 @@ func TestListJSON(t *testing.T) {
 	opts.IO = ios
 	opts.JSON = true
 
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 
@@ -111,7 +111,7 @@ func TestListStateAllAuthorMe(t *testing.T) {
 	opts.Author = "@me"
 	opts.Search = "fix"
 
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 
@@ -146,7 +146,7 @@ func TestListSearchAloneNotParenthesised(t *testing.T) {
 	opts.IO = ios
 	opts.Search = `title ~ "x"`
 
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	if q := findRequest(srv, "GET", "/pullrequests").Query.Get("q"); q != `title ~ "x"` {
@@ -163,7 +163,7 @@ func TestListAuthorEscaped(t *testing.T) {
 	opts.IO = ios
 	opts.Author = `ada" OR author.nickname="bob`
 
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	want := `author.nickname="ada\" OR author.nickname=\"bob"`
@@ -181,7 +181,7 @@ func TestListJSONEmptyIsArray(t *testing.T) {
 	opts.IO = ios
 	opts.JSON = true
 
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	if got := strings.TrimSpace(out.String()); got != "[]" {
@@ -220,7 +220,7 @@ func TestListWeb(t *testing.T) {
 	opts.Web = true
 	opts.Browser = fb
 
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	if fb.url != "https://bitbucket.org/myws/myrepo/pull-requests/" {
@@ -235,7 +235,7 @@ func TestListInvalidState(t *testing.T) {
 		BaseRepo: baseRepoFunc(nil),
 		State:    "bogus",
 	}
-	err := listRun(opts)
+	err := listRun(t.Context(), opts)
 	if err == nil || !strings.Contains(err.Error(), "invalid state") {
 		t.Fatalf("err = %v", err)
 	}

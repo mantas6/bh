@@ -17,7 +17,7 @@ type EditOptions struct {
 	IO        *cmdutil.IOStreams
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
-	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
+	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 
 	Arg             string
 	Title           string
@@ -63,7 +63,7 @@ func NewCmdEdit(f *cmdutil.Factory, runF func(*EditOptions) error) *cobra.Comman
 			if runF != nil {
 				return runF(opts)
 			}
-			return editRun(opts)
+			return editRun(cmd.Context(), opts)
 		},
 	}
 
@@ -78,9 +78,7 @@ func NewCmdEdit(f *cmdutil.Factory, runF func(*EditOptions) error) *cobra.Comman
 	return cmd
 }
 
-func editRun(opts *EditOptions) error {
-	ctx := context.Background()
-
+func editRun(ctx context.Context, opts *EditOptions) error {
 	hasEdit := opts.titleSet || opts.bodySet || opts.BodyFile != "" || opts.Base != "" ||
 		len(opts.AddReviewers) > 0 || len(opts.RemoveReviewers) > 0 || opts.Draft || opts.Ready
 	if !hasEdit {

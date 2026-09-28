@@ -17,7 +17,7 @@ type ResolveOptions struct {
 	IO        *cmdutil.IOStreams
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
-	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
+	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 
 	Arg       string
 	CommentID int
@@ -55,7 +55,7 @@ func newCmdResolveOrReopen(f *cmdutil.Factory, runF func(*ResolveOptions) error,
 			if runF != nil {
 				return runF(opts)
 			}
-			return resolveRun(opts)
+			return resolveRun(cmd.Context(), opts)
 		},
 	}
 }
@@ -65,9 +65,7 @@ func NewCmdResolve(f *cmdutil.Factory, runF func(*ResolveOptions) error) *cobra.
 	return newCmdResolveOrReopen(f, runF, false)
 }
 
-func resolveRun(opts *ResolveOptions) error {
-	ctx := context.Background()
-
+func resolveRun(ctx context.Context, opts *ResolveOptions) error {
 	// Only the PR id is needed, so a numeric argument skips the PR fetch.
 	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).FindID(ctx, opts.Arg)
 	if err != nil {

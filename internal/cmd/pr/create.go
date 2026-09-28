@@ -19,7 +19,7 @@ type CreateOptions struct {
 	IO        *cmdutil.IOStreams
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
-	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
+	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 	Browser   cmdutil.Browser
 
 	Title             string
@@ -78,7 +78,7 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 			if runF != nil {
 				return runF(opts)
 			}
-			return createRun(opts)
+			return createRun(cmd.Context(), opts)
 		},
 	}
 
@@ -96,10 +96,8 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 	return cmd
 }
 
-func createRun(opts *CreateOptions) error {
-	ctx := context.Background()
-
-	repo, resolvedRemote, err := opts.BaseRepo()
+func createRun(ctx context.Context, opts *CreateOptions) error {
+	repo, resolvedRemote, err := opts.BaseRepo(ctx)
 	if err != nil {
 		return err
 	}

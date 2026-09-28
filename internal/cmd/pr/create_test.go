@@ -56,7 +56,7 @@ func TestCreateBodyShape(t *testing.T) {
 		Reviewers:         []string{"bob"},
 	}
 
-	if err := createRun(opts); err != nil {
+	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
 
@@ -114,7 +114,7 @@ func TestCreateAutoPushTTYYes(t *testing.T) {
 		Head:      "feature",
 	}
 
-	if err := createRun(opts); err != nil {
+	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
 
@@ -139,7 +139,7 @@ func TestCreateNonTTYNoPushErrors(t *testing.T) {
 		Head:      "feature",
 	}
 
-	err := createRun(opts)
+	err := createRun(t.Context(), opts)
 	if err == nil || !strings.Contains(err.Error(), "has not been pushed to origin; run with --push") {
 		t.Fatalf("err = %v", err)
 	}
@@ -166,7 +166,7 @@ func TestCreateNonTTYWithPush(t *testing.T) {
 		Push:      true,
 	}
 
-	if err := createRun(opts); err != nil {
+	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
 	if len(stub.Interactive) != 1 || strings.Join(stub.Interactive[0], " ") != "push -u --end-of-options origin feature" {
@@ -193,7 +193,7 @@ func TestCreateUpstreamAheadWarns(t *testing.T) {
 		Head:      "feature",
 	}
 
-	if err := createRun(opts); err != nil {
+	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
 	if !strings.Contains(errOut.String(), "! local branch is 3 commits ahead of origin/feature") {
@@ -227,7 +227,7 @@ func TestCreateFillSingleCommit(t *testing.T) {
 		Fill:      true,
 	}
 
-	if err := createRun(opts); err != nil {
+	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
 
@@ -261,7 +261,7 @@ func TestCreateWeb(t *testing.T) {
 		Web:       true,
 	}
 
-	if err := createRun(opts); err != nil {
+	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
 	want := "https://bitbucket.org/myws/myrepo/pull-requests/new?source=feature&dest=main"
@@ -282,7 +282,7 @@ func TestCreateNonTTYRequiresTitle(t *testing.T) {
 		Head:      "feature",
 	}
 
-	err := createRun(opts)
+	err := createRun(t.Context(), opts)
 	var fe *cmdutil.FlagError
 	if !errors.As(err, &fe) || !strings.Contains(err.Error(), "title is required when not running interactively; use --title or --fill") {
 		t.Fatalf("err = %v", err)
@@ -303,7 +303,7 @@ func TestCreateTTYEmptyTitleErrors(t *testing.T) {
 		Head:      "feature",
 	}
 
-	err := createRun(opts)
+	err := createRun(t.Context(), opts)
 	if err == nil || err.Error() != "title is required" {
 		t.Fatalf("err = %v", err)
 	}
@@ -333,7 +333,7 @@ func TestCreatePushTargetsBranchUpstreamRemote(t *testing.T) {
 		Head:      "feature",
 		Push:      true,
 	}
-	if err := createRun(opts); err != nil {
+	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
 	if len(stub.Interactive) != 1 || strings.Join(stub.Interactive[0], " ") != "push -u --end-of-options fork feature" {
@@ -361,7 +361,7 @@ func TestCreatePushUntrackedDefaultsToOrigin(t *testing.T) {
 		Head:      "feature",
 		Push:      true,
 	}
-	if err := createRun(opts); err != nil {
+	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
 	if len(stub.Interactive) != 1 || strings.Join(stub.Interactive[0], " ") != "push -u --end-of-options origin feature" {
@@ -387,7 +387,7 @@ func TestCreatePushWhenRemoteBranchExistsUntracked(t *testing.T) {
 		Head:      "feature",
 		Push:      true,
 	}
-	if err := createRun(opts); err != nil {
+	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
 	if len(stub.Interactive) != 1 || strings.Join(stub.Interactive[0], " ") != "push -u --end-of-options origin feature" {
@@ -412,7 +412,7 @@ func TestCreateRemoteBranchExistsUntrackedWarnsAhead(t *testing.T) {
 		Title:     "T",
 		Head:      "feature",
 	}
-	if err := createRun(opts); err != nil {
+	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
 	if !strings.Contains(errOut.String(), "local branch is 1 commit ahead of origin/feature") {
@@ -437,7 +437,7 @@ func TestCreateFillUnknownBaseErrors(t *testing.T) {
 		Head:      "feature",
 		Fill:      true,
 	}
-	err := createRun(opts)
+	err := createRun(t.Context(), opts)
 	if err == nil || !strings.Contains(err.Error(), "has no main branch configured; specify --base") {
 		t.Fatalf("err = %v", err)
 	}
@@ -465,7 +465,7 @@ func TestCreateFillExplicitBaseUsesRemoteRef(t *testing.T) {
 		Head:      "my-feature",
 		Fill:      true,
 	}
-	if err := createRun(opts); err != nil {
+	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
 	req := findRequest(srv, "POST", "/pullrequests")
@@ -567,7 +567,7 @@ func TestCreatePipedPromptsShareStdin(t *testing.T) {
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Head:      "feature",
 	}
-	if err := createRun(opts); err != nil {
+	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
 

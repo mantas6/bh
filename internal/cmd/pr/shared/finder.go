@@ -13,14 +13,14 @@ import (
 // needed: BaseRepo is skipped when the argument is a URL, and Git is only
 // required when the argument is empty (the current branch).
 type Finder struct {
-	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
+	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 }
 
 // NewFinder returns a Finder using the given providers.
 func NewFinder(
-	baseRepo func() (git.Repo, *git.ResolvedRemote, error),
+	baseRepo func(context.Context) (git.Repo, *git.ResolvedRemote, error),
 	apiClient func() (*api.Client, error),
 	gitFn func() (git.Runner, error),
 ) *Finder {
@@ -72,7 +72,7 @@ func (f *Finder) find(ctx context.Context, arg string, fetchByNumber bool) (*Fou
 		found.Repo = *sel.Repo
 		found.Remote = f.matchingRemote(ctx, found.Repo)
 	} else {
-		found.Repo, found.Remote, err = f.BaseRepo()
+		found.Repo, found.Remote, err = f.BaseRepo(ctx)
 		if err != nil {
 			return nil, err
 		}

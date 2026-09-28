@@ -31,7 +31,7 @@ func TestReviewApprove(t *testing.T) {
 
 	opts := newReviewOpts(t, srv)
 	opts.Approve = true
-	if err := reviewRun(opts); err != nil {
+	if err := reviewRun(t.Context(), opts); err != nil {
 		t.Fatalf("reviewRun: %v", err)
 	}
 	if findRequest(srv, "POST", "/pullrequests/123/approve") == nil {
@@ -51,7 +51,7 @@ func TestReviewApproveWithBody(t *testing.T) {
 	opts := newReviewOpts(t, srv)
 	opts.Approve = true
 	opts.Body = "looks good"
-	if err := reviewRun(opts); err != nil {
+	if err := reviewRun(t.Context(), opts); err != nil {
 		t.Fatalf("reviewRun: %v", err)
 	}
 
@@ -81,7 +81,7 @@ func TestReviewRequestChanges(t *testing.T) {
 		Arg:            "123",
 		RequestChanges: true,
 	}
-	if err := reviewRun(opts); err != nil {
+	if err := reviewRun(t.Context(), opts); err != nil {
 		t.Fatalf("reviewRun: %v", err)
 	}
 	if findRequest(srv, "POST", "/pullrequests/123/request-changes") == nil {
@@ -100,7 +100,7 @@ func TestReviewComment(t *testing.T) {
 	opts := newReviewOpts(t, srv)
 	opts.Comment = true
 	opts.Body = "a note"
-	if err := reviewRun(opts); err != nil {
+	if err := reviewRun(t.Context(), opts); err != nil {
 		t.Fatalf("reviewRun: %v", err)
 	}
 	if findRequest(srv, "POST", "/pullrequests/123/comments") == nil {
@@ -114,7 +114,7 @@ func TestReviewCommentRequiresBody(t *testing.T) {
 
 	opts := newReviewOpts(t, srv)
 	opts.Comment = true
-	err := reviewRun(opts)
+	err := reviewRun(t.Context(), opts)
 	var fe *cmdutil.FlagError
 	if err == nil || !errors.As(err, &fe) || !strings.Contains(err.Error(), "comment body is required") {
 		t.Fatalf("expected body FlagError, got %v", err)
@@ -127,7 +127,7 @@ func TestReviewCommentBlankBodyRequiresBody(t *testing.T) {
 	opts := newReviewOpts(t, srv)
 	opts.Comment = true
 	opts.Body = "  \n"
-	err := reviewRun(opts)
+	err := reviewRun(t.Context(), opts)
 	var fe *cmdutil.FlagError
 	if !errors.As(err, &fe) {
 		t.Fatalf("expected FlagError, got %v", err)

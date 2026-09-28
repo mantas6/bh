@@ -18,7 +18,7 @@ type ViewOptions struct {
 	IO        *cmdutil.IOStreams
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
-	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
+	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 	Browser   cmdutil.Browser
 
 	Arg  string
@@ -47,7 +47,7 @@ func NewCmdView(f *cmdutil.Factory, runF func(*ViewOptions) error) *cobra.Comman
 			if runF != nil {
 				return runF(opts)
 			}
-			return viewRun(opts)
+			return viewRun(cmd.Context(), opts)
 		},
 	}
 
@@ -57,9 +57,7 @@ func NewCmdView(f *cmdutil.Factory, runF func(*ViewOptions) error) *cobra.Comman
 	return cmd
 }
 
-func viewRun(opts *ViewOptions) error {
-	ctx := context.Background()
-
+func viewRun(ctx context.Context, opts *ViewOptions) error {
 	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err

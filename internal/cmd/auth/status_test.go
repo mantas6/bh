@@ -19,7 +19,7 @@ func TestStatusNotLoggedIn(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &StatusOptions{IO: ios, Config: config.Load}
 
-	err := statusRun(opts)
+	err := statusRun(t.Context(), opts)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -42,7 +42,7 @@ func TestStatusLoggedInViaBHToken(t *testing.T) {
 		APIClientFor: clientForServer(srv),
 	}
 
-	if err := statusRun(opts); err != nil {
+	if err := statusRun(t.Context(), opts); err != nil {
 		t.Fatalf("statusRun: %v", err)
 	}
 
@@ -79,7 +79,7 @@ func TestStatusShowToken(t *testing.T) {
 		ShowToken:    true,
 	}
 
-	if err := statusRun(opts); err != nil {
+	if err := statusRun(t.Context(), opts); err != nil {
 		t.Fatalf("statusRun: %v", err)
 	}
 
@@ -109,7 +109,7 @@ func TestStatusInvalidToken(t *testing.T) {
 		APIClientFor: clientForServer(srv),
 	}
 
-	err := statusRun(opts)
+	err := statusRun(t.Context(), opts)
 	if !errors.Is(err, cmdutil.ErrSilent) {
 		t.Fatalf("expected ErrSilent, got %v", err)
 	}
@@ -137,7 +137,7 @@ func TestStatusNonAuthErrorIsNotInvalidToken(t *testing.T) {
 				APIClientFor: clientForServer(srv),
 			}
 
-			err := statusRun(opts)
+			err := statusRun(t.Context(), opts)
 			if err == nil || errors.Is(err, cmdutil.ErrSilent) {
 				t.Fatalf("expected a reported error, got %v", err)
 			}

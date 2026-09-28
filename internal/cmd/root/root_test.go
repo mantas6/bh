@@ -1,6 +1,7 @@
 package root
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -10,19 +11,32 @@ import (
 )
 
 func TestRootVersion(t *testing.T) {
-	ios, _, out, _ := cmdutil.TestIOStreams()
-	f := &cmdutil.Factory{IOStreams: ios, Version: "1.2.3"}
+	for _, args := range [][]string{{"--version"}, {"version"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			ios, _, out, _ := cmdutil.TestIOStreams()
+			f := &cmdutil.Factory{IOStreams: ios, Version: "1.2.3"}
 
-	cmd := NewCmdRoot(f)
-	cmd.SetArgs([]string{"--version"})
+			cmd := NewCmdRoot(f)
+			cmd.SetArgs(args)
 
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			if got, want := out.String(), "bh version 1.2.3\n"; got != want {
+				t.Fatalf("version output = %q, want %q", got, want)
+			}
+		})
 	}
+}
 
-	got := out.String()
-	if !strings.Contains(got, "1.2.3") {
-		t.Fatalf("version output = %q, want to contain %q", got, "1.2.3")
+func TestVersionRejectsArgs(t *testing.T) {
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	cmd := NewCmdRoot(&cmdutil.Factory{IOStreams: ios, Version: "1.2.3"})
+	cmd.SetArgs([]string{"version", "extra"})
+
+	var flagErr *cmdutil.FlagError
+	if err := cmd.Execute(); !errors.As(err, &flagErr) {
+		t.Fatalf("Execute() error = %v, want FlagError", err)
 	}
 }
 
@@ -61,7 +75,7 @@ func TestRepoFlagFeedsFactory(t *testing.T) {
 	errStop := errors.New("stop")
 	var seen string
 	f := &cmdutil.Factory{IOStreams: ios}
-	f.BaseRepo = func() (git.Repo, *git.ResolvedRemote, error) {
+	f.BaseRepo = func(context.Context) (git.Repo, *git.ResolvedRemote, error) {
 		seen = f.RepoOverride
 		return git.Repo{}, nil, errStop
 	}

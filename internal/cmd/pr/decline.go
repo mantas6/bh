@@ -17,7 +17,7 @@ type DeclineOptions struct {
 	IO        *cmdutil.IOStreams
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
-	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
+	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 
 	Arg          string
 	DeleteBranch bool
@@ -44,7 +44,7 @@ func NewCmdDecline(f *cmdutil.Factory, runF func(*DeclineOptions) error) *cobra.
 			if runF != nil {
 				return runF(opts)
 			}
-			return declineRun(opts)
+			return declineRun(cmd.Context(), opts)
 		},
 	}
 
@@ -53,9 +53,7 @@ func NewCmdDecline(f *cmdutil.Factory, runF func(*DeclineOptions) error) *cobra.
 	return cmd
 }
 
-func declineRun(opts *DeclineOptions) error {
-	ctx := context.Background()
-
+func declineRun(ctx context.Context, opts *DeclineOptions) error {
 	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err

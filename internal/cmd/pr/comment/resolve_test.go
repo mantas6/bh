@@ -25,7 +25,7 @@ func TestResolve(t *testing.T) {
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests/123/comments/9/resolve", 200, nil)
 
 	ios, _, out, errOut := cmdutil.TestIOStreams()
-	if err := resolveRun(newResolveOpts(srv, ios)); err != nil {
+	if err := resolveRun(t.Context(), newResolveOpts(srv, ios)); err != nil {
 		t.Fatalf("resolveRun: %v", err)
 	}
 	if findRequest(srv, "POST", "/comments/9/resolve") == nil {
@@ -49,7 +49,7 @@ func TestReopen(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := newResolveOpts(srv, ios)
 	opts.Reopen = true
-	if err := resolveRun(opts); err != nil {
+	if err := resolveRun(t.Context(), opts); err != nil {
 		t.Fatalf("resolveRun reopen: %v", err)
 	}
 	if findRequest(srv, "DELETE", "/comments/9/resolve") == nil {
@@ -69,7 +69,7 @@ func TestResolveByBranchLooksUpPR(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := newResolveOpts(srv, ios)
 	opts.Arg = "feature"
-	if err := resolveRun(opts); err != nil {
+	if err := resolveRun(t.Context(), opts); err != nil {
 		t.Fatalf("resolveRun: %v", err)
 	}
 	if findRequest(srv, "POST", "/pullrequests/123/comments/9/resolve") == nil {

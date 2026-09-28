@@ -1,7 +1,6 @@
 package git_test
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -168,7 +167,7 @@ func remoteVOutput(pairs ...[2]string) string {
 }
 
 func TestResolveRepo(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	origin := git.Repo{Host: "bitbucket.org", Workspace: "ows", Name: "repo"}
 	upstream := git.Repo{Host: "bitbucket.org", Workspace: "ups", Name: "repo"}
 

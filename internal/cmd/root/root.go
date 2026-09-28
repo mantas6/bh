@@ -4,6 +4,7 @@ package root
 import (
 	"github.com/mantas6/bh/internal/cmd/auth"
 	"github.com/mantas6/bh/internal/cmd/pr"
+	"github.com/mantas6/bh/internal/cmd/version"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/spf13/cobra"
 )
@@ -25,7 +26,7 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 		Version:       f.Version,
 	}
 
-	cmd.SetVersionTemplate("bh version {{.Version}}\n")
+	cmd.SetVersionTemplate(version.Template)
 	cmd.SetOut(f.IOStreams.Out)
 	cmd.SetErr(f.IOStreams.ErrOut)
 	cmd.SetIn(f.IOStreams.In)
@@ -39,6 +40,7 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	// Cobra registers a --version flag automatically because Version is set.
 	cmd.AddCommand(auth.NewCmdAuth(f))
 	cmd.AddCommand(pr.NewCmdPR(f))
+	cmd.AddCommand(version.NewCmdVersion(f))
 
 	return cmd
 }

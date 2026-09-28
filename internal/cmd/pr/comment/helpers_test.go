@@ -1,6 +1,7 @@
 package comment
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -39,8 +40,8 @@ func testRepo() git.Repo {
 }
 
 // baseRepoFunc returns a BaseRepo resolver yielding testRepo and no remote.
-func baseRepoFunc() func() (git.Repo, *git.ResolvedRemote, error) {
-	return func() (git.Repo, *git.ResolvedRemote, error) {
+func baseRepoFunc() func(context.Context) (git.Repo, *git.ResolvedRemote, error) {
+	return func(context.Context) (git.Repo, *git.ResolvedRemote, error) {
 		return testRepo(), nil, nil
 	}
 }

@@ -1,7 +1,6 @@
 package api_test
 
 import (
-	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -23,7 +22,7 @@ func membersServer(t *testing.T) *apitest.Server {
 
 func TestFindMemberByNickname(t *testing.T) {
 	c := membersServer(t).Client()
-	u, err := c.FindMember(context.Background(), "ws", "alice")
+	u, err := c.FindMember(t.Context(), "ws", "alice")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +34,7 @@ func TestFindMemberByNickname(t *testing.T) {
 func TestFindMemberByUUIDBraces(t *testing.T) {
 	c := membersServer(t).Client()
 	// Without braces, uppercase - should still match {aaa}.
-	u, err := c.FindMember(context.Background(), "ws", "AAA")
+	u, err := c.FindMember(t.Context(), "ws", "AAA")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +45,7 @@ func TestFindMemberByUUIDBraces(t *testing.T) {
 
 func TestFindMemberByAccountID(t *testing.T) {
 	c := membersServer(t).Client()
-	u, err := c.FindMember(context.Background(), "ws", "acc1")
+	u, err := c.FindMember(t.Context(), "ws", "acc1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +56,7 @@ func TestFindMemberByAccountID(t *testing.T) {
 
 func TestFindMemberAmbiguous(t *testing.T) {
 	c := membersServer(t).Client()
-	_, err := c.FindMember(context.Background(), "ws", "bob")
+	_, err := c.FindMember(t.Context(), "ws", "bob")
 	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("err = %v, want ambiguous", err)
 	}
@@ -65,7 +64,7 @@ func TestFindMemberAmbiguous(t *testing.T) {
 
 func TestFindMemberNone(t *testing.T) {
 	c := membersServer(t).Client()
-	_, err := c.FindMember(context.Background(), "ws", "nobody")
+	_, err := c.FindMember(t.Context(), "ws", "nobody")
 	if err == nil || !strings.Contains(err.Error(), "no workspace member matches") {
 		t.Fatalf("err = %v", err)
 	}

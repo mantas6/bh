@@ -39,7 +39,7 @@ func TestMergeDefaultStrategyTTYConfirmYes(t *testing.T) {
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
 	}
-	if err := mergeRun(opts); err != nil {
+	if err := mergeRun(t.Context(), opts); err != nil {
 		t.Fatalf("mergeRun: %v", err)
 	}
 
@@ -80,7 +80,7 @@ func TestMergeYesWithoutStrategyOmitsStrategy(t *testing.T) {
 		Arg:       "123",
 		Yes:       true,
 	}
-	if err := mergeRun(opts); err != nil {
+	if err := mergeRun(t.Context(), opts); err != nil {
 		t.Fatalf("mergeRun: %v", err)
 	}
 
@@ -112,7 +112,7 @@ func TestMergeDeleteBranchWithoutRemoteSkipsLocalCleanup(t *testing.T) {
 		Merge:        true,
 		DeleteBranch: true,
 	}
-	if err := mergeRun(opts); err != nil {
+	if err := mergeRun(t.Context(), opts); err != nil {
 		t.Fatalf("mergeRun: %v", err)
 	}
 	if len(stub.Calls) != 0 {
@@ -146,7 +146,7 @@ func TestMergeURLRepoUsedForSameRepoCheck(t *testing.T) {
 		Merge:        true,
 		DeleteBranch: true,
 	}
-	if err := mergeRun(opts); err != nil {
+	if err := mergeRun(t.Context(), opts); err != nil {
 		t.Fatalf("mergeRun: %v", err)
 	}
 	calls := strings.Join(stub.CallStrings(), "\n")
@@ -170,7 +170,7 @@ func TestMergeConfirmNoCancels(t *testing.T) {
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
 	}
-	err := mergeRun(opts)
+	err := mergeRun(t.Context(), opts)
 	if !errors.Is(err, cmdutil.ErrCancel) {
 		t.Fatalf("err = %v, want ErrCancel", err)
 	}
@@ -188,7 +188,7 @@ func TestMergeNonTTYWithoutFlagsErrors(t *testing.T) {
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
 	}
-	err := mergeRun(opts)
+	err := mergeRun(t.Context(), opts)
 	if err == nil || !strings.Contains(err.Error(), "specify a merge strategy") {
 		t.Fatalf("err = %v", err)
 	}
@@ -209,7 +209,7 @@ func TestMergeSquashWithMessageBody(t *testing.T) {
 		Squash:    true,
 		Message:   "custom message",
 	}
-	if err := mergeRun(opts); err != nil {
+	if err := mergeRun(t.Context(), opts); err != nil {
 		t.Fatalf("mergeRun: %v", err)
 	}
 
@@ -251,7 +251,7 @@ func TestMergeDeleteBranchLocalCleanup(t *testing.T) {
 		Merge:        true,
 		DeleteBranch: true,
 	}
-	if err := mergeRun(opts); err != nil {
+	if err := mergeRun(t.Context(), opts); err != nil {
 		t.Fatalf("mergeRun: %v", err)
 	}
 
@@ -287,7 +287,7 @@ func TestMergeNotOpenErrors(t *testing.T) {
 		Arg:       "123",
 		Merge:     true,
 	}
-	err := mergeRun(opts)
+	err := mergeRun(t.Context(), opts)
 	if err == nil || !strings.Contains(err.Error(), "pull request #123 is merged") {
 		t.Fatalf("err = %v", err)
 	}

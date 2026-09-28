@@ -114,6 +114,7 @@ The following remote URL forms are recognized:
 | `bh pr comment delete` | Delete a pull request comment |
 | `bh pr comment resolve` | Resolve a pull request comment thread |
 | `bh pr comment reopen` | Reopen (unresolve) a pull request comment thread |
+| `bh version` | Show the bh version (also `bh --version`) |
 
 A pull request argument accepts a number (`123` or `#123`), a Bitbucket pull
 request URL, or a branch name (the open pull request whose source branch it

@@ -16,7 +16,7 @@ type ReplyOptions struct {
 	IO        *cmdutil.IOStreams
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
-	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
+	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 
 	Arg       string
 	CommentID int
@@ -51,7 +51,7 @@ func NewCmdReply(f *cmdutil.Factory, runF func(*ReplyOptions) error) *cobra.Comm
 			if runF != nil {
 				return runF(opts)
 			}
-			return replyRun(opts)
+			return replyRun(cmd.Context(), opts)
 		},
 	}
 
@@ -60,9 +60,7 @@ func NewCmdReply(f *cmdutil.Factory, runF func(*ReplyOptions) error) *cobra.Comm
 	return cmd
 }
 
-func replyRun(opts *ReplyOptions) error {
-	ctx := context.Background()
-
+func replyRun(ctx context.Context, opts *ReplyOptions) error {
 	body, err := resolveBody(opts.IO, opts.Body, opts.BodyFile)
 	if err != nil {
 		return err

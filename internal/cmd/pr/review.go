@@ -17,7 +17,7 @@ type ReviewOptions struct {
 	IO        *cmdutil.IOStreams
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
-	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
+	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 
 	Arg            string
 	Approve        bool
@@ -58,7 +58,7 @@ func NewCmdReview(f *cmdutil.Factory, runF func(*ReviewOptions) error) *cobra.Co
 			if runF != nil {
 				return runF(opts)
 			}
-			return reviewRun(opts)
+			return reviewRun(cmd.Context(), opts)
 		},
 	}
 
@@ -70,9 +70,7 @@ func NewCmdReview(f *cmdutil.Factory, runF func(*ReviewOptions) error) *cobra.Co
 	return cmd
 }
 
-func reviewRun(opts *ReviewOptions) error {
-	ctx := context.Background()
-
+func reviewRun(ctx context.Context, opts *ReviewOptions) error {
 	body := opts.Body
 	if opts.BodyFile != "" {
 		b, err := shared.ReadBodyFile(opts.IO, opts.BodyFile)

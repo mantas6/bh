@@ -23,7 +23,7 @@ func TestReplyBodyHasParent(t *testing.T) {
 		CommentID: 5,
 		Body:      "a reply",
 	}
-	if err := replyRun(opts); err != nil {
+	if err := replyRun(t.Context(), opts); err != nil {
 		t.Fatalf("replyRun: %v", err)
 	}
 
@@ -50,7 +50,7 @@ func TestReplyMissingBody(t *testing.T) {
 		Arg:       "123",
 		CommentID: 5,
 	}
-	err := replyRun(opts)
+	err := replyRun(t.Context(), opts)
 	var fe *cmdutil.FlagError
 	if !errors.As(err, &fe) || !strings.Contains(err.Error(), "comment body is required") {
 		t.Fatalf("err = %v, want body FlagError", err)

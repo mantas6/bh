@@ -29,7 +29,7 @@ func TestDeleteNonTTYWithoutYes(t *testing.T) {
 		Arg:       "123",
 		CommentID: 9,
 	}
-	err := deleteRun(opts)
+	err := deleteRun(t.Context(), opts)
 	if err == nil || !strings.Contains(err.Error(), "--yes required when not running interactively") {
 		t.Fatalf("err = %v", err)
 	}
@@ -42,7 +42,7 @@ func TestDeleteTTYDecline(t *testing.T) {
 	ios.SetStdinTTY(true)
 	in.WriteString("n\n")
 	opts := newDeleteOpts(srv, ios)
-	err := deleteRun(opts)
+	err := deleteRun(t.Context(), opts)
 	if !errors.Is(err, cmdutil.ErrCancel) {
 		t.Fatalf("err = %v, want ErrCancel", err)
 	}
@@ -62,7 +62,7 @@ func TestDeleteTTYConfirm(t *testing.T) {
 	ios.SetStdinTTY(true)
 	in.WriteString("y\n")
 	opts := newDeleteOpts(srv, ios)
-	if err := deleteRun(opts); err != nil {
+	if err := deleteRun(t.Context(), opts); err != nil {
 		t.Fatalf("deleteRun: %v", err)
 	}
 	if findRequest(srv, "DELETE", "/comments/9") == nil {
@@ -81,7 +81,7 @@ func TestDeleteYesSkipsPrompt(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := newDeleteOpts(srv, ios)
 	opts.Yes = true
-	if err := deleteRun(opts); err != nil {
+	if err := deleteRun(t.Context(), opts); err != nil {
 		t.Fatalf("deleteRun: %v", err)
 	}
 	if findRequest(srv, "DELETE", "/comments/9") == nil {

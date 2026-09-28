@@ -55,7 +55,7 @@ func TestAddPlainBody(t *testing.T) {
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := newAddOpts(srv, ios)
 	opts.Body = "Nice work"
-	if err := addRun(opts); err != nil {
+	if err := addRun(t.Context(), opts); err != nil {
 		t.Fatalf("addRun: %v", err)
 	}
 
@@ -83,7 +83,7 @@ func TestAddInlineNewSide(t *testing.T) {
 	opts.Line = 12
 	opts.lineSet = true
 	opts.Side = "new"
-	if err := addRun(opts); err != nil {
+	if err := addRun(t.Context(), opts); err != nil {
 		t.Fatalf("addRun: %v", err)
 	}
 
@@ -110,7 +110,7 @@ func TestAddInlineOldSide(t *testing.T) {
 	opts.Line = 7
 	opts.lineSet = true
 	opts.Side = "old"
-	if err := addRun(opts); err != nil {
+	if err := addRun(t.Context(), opts); err != nil {
 		t.Fatalf("addRun: %v", err)
 	}
 
@@ -131,7 +131,7 @@ func TestAddBodyFromStdin(t *testing.T) {
 	in.WriteString("from stdin\n")
 	// stdin is not a TTY (default false), so the body is read from it.
 	opts := newAddOpts(srv, ios)
-	if err := addRun(opts); err != nil {
+	if err := addRun(t.Context(), opts); err != nil {
 		t.Fatalf("addRun: %v", err)
 	}
 	content, _ := createBody(t, srv)["content"].(map[string]any)
@@ -149,7 +149,7 @@ func TestAddMissingBody(t *testing.T) {
 		Arg:      "123",
 		Side:     "new",
 	}
-	err := addRun(opts)
+	err := addRun(t.Context(), opts)
 	var fe *cmdutil.FlagError
 	if !errors.As(err, &fe) || !strings.Contains(err.Error(), "comment body is required") {
 		t.Fatalf("err = %v, want body FlagError", err)

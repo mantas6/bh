@@ -71,7 +71,7 @@ func New(version string) *cmdutil.Factory {
 		return f.APIClientFor(token, cfg.Email(host)), nil
 	}
 
-	f.BaseRepo = func() (git.Repo, *git.ResolvedRemote, error) {
+	f.BaseRepo = func(ctx context.Context) (git.Repo, *git.ResolvedRemote, error) {
 		override := repoOverride(f.RepoOverride, os.Getenv)
 		gitRunner, err := f.Git()
 		if err != nil {
@@ -82,7 +82,7 @@ func New(version string) *cmdutil.Factory {
 			// matching-remote lookup is skipped.
 			gitRunner = nil
 		}
-		return git.ResolveRepo(context.Background(), gitRunner, override)
+		return git.ResolveRepo(ctx, gitRunner, override)
 	}
 
 	return f

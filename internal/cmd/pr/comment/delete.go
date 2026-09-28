@@ -17,7 +17,7 @@ type DeleteOptions struct {
 	IO        *cmdutil.IOStreams
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
-	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
+	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 
 	Arg       string
 	CommentID int
@@ -47,7 +47,7 @@ func NewCmdDelete(f *cmdutil.Factory, runF func(*DeleteOptions) error) *cobra.Co
 			if runF != nil {
 				return runF(opts)
 			}
-			return deleteRun(opts)
+			return deleteRun(cmd.Context(), opts)
 		},
 	}
 
@@ -56,9 +56,7 @@ func NewCmdDelete(f *cmdutil.Factory, runF func(*DeleteOptions) error) *cobra.Co
 	return cmd
 }
 
-func deleteRun(opts *DeleteOptions) error {
-	ctx := context.Background()
-
+func deleteRun(ctx context.Context, opts *DeleteOptions) error {
 	if !opts.Yes {
 		if !opts.IO.IsStdinTTY() {
 			return errors.New("--yes required when not running interactively")

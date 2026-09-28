@@ -76,7 +76,7 @@ func NewCmdLogin(f *cmdutil.Factory, runF func(*LoginOptions) error) *cobra.Comm
 			if runF != nil {
 				return runF(opts)
 			}
-			return loginRun(opts)
+			return loginRun(cmd.Context(), opts)
 		},
 	}
 
@@ -86,7 +86,7 @@ func NewCmdLogin(f *cmdutil.Factory, runF func(*LoginOptions) error) *cobra.Comm
 	return cmd
 }
 
-func loginRun(opts *LoginOptions) error {
+func loginRun(ctx context.Context, opts *LoginOptions) error {
 	cfg, err := opts.Config()
 	if err != nil {
 		return err
@@ -127,7 +127,7 @@ func loginRun(opts *LoginOptions) error {
 	}
 
 	client := opts.APIClientFor(token, email)
-	user, err := client.CurrentUser(context.Background())
+	user, err := client.CurrentUser(ctx)
 	if err != nil {
 		if api.IsUnauthorized(err) {
 			var he *api.HTTPError

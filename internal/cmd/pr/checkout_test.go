@@ -54,7 +54,7 @@ func runCheckout(t *testing.T, pr *api.PullRequest, rr *git.ResolvedRemote, stub
 	if mutate != nil {
 		mutate(opts)
 	}
-	if err := checkoutRun(opts); err != nil {
+	if err := checkoutRun(t.Context(), opts); err != nil {
 		t.Fatalf("checkoutRun: %v", err)
 	}
 	return stub
@@ -252,7 +252,7 @@ func TestCheckoutDeletedForkErrors(t *testing.T) {
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
 	}
-	err := checkoutRun(opts)
+	err := checkoutRun(t.Context(), opts)
 	if err == nil || !strings.Contains(err.Error(), "source repository of pull request #123 is no longer available") {
 		t.Fatalf("err = %v", err)
 	}
@@ -282,7 +282,7 @@ func TestCheckoutURLRepoUsesItsOwnRemote(t *testing.T) {
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "https://bitbucket.org/other/repo/pull-requests/123",
 	}
-	if err := checkoutRun(opts); err != nil {
+	if err := checkoutRun(t.Context(), opts); err != nil {
 		t.Fatalf("checkoutRun: %v", err)
 	}
 	assertCalls(t, stub.CallStrings(), []string{

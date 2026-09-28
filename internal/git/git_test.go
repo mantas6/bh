@@ -15,7 +15,7 @@ import (
 )
 
 func TestRemotesParsing(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	out := "origin\tgit@bitbucket.org:ws/repo.git (fetch)\n" +
 		"origin\tgit@bitbucket.org:ws/repo.git (push)\n" +
 		"upstream\thttps://bitbucket.org/ups/repo.git (fetch)\n" +
@@ -40,7 +40,7 @@ func TestRemotesParsingDistinctPushURL(t *testing.T) {
 	out := "origin\thttps://bitbucket.org/ws/repo.git (fetch)\n" +
 		"origin\tgit@bitbucket.org:ws/repo.git (push)\n"
 	s := gittest.New().Register(out, nil, "remote", "-v")
-	remotes, err := git.Remotes(context.Background(), s)
+	remotes, err := git.Remotes(t.Context(), s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestRemotesParsingDistinctPushURL(t *testing.T) {
 }
 
 func TestCurrentBranch(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	s := gittest.New().Register("main\n", nil, "symbolic-ref", "--quiet", "--short", "HEAD")
 	branch, err := git.CurrentBranch(ctx, s)
@@ -69,7 +69,7 @@ func TestCurrentBranch(t *testing.T) {
 }
 
 func TestCurrentBranchDetached(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	s := gittest.New().Register("", gittest.Exit(1), "symbolic-ref", "--quiet", "--short", "HEAD")
 	_, err := git.CurrentBranch(ctx, s)
@@ -79,7 +79,7 @@ func TestCurrentBranchDetached(t *testing.T) {
 }
 
 func TestBranchUpstream(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	s := gittest.New().
 		Register("origin\n", nil, "config", "--get", "branch.feature.remote").
@@ -98,7 +98,7 @@ func TestBranchUpstream(t *testing.T) {
 }
 
 func TestBranchUpstreamUnset(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// git config exits 1 when a key is unset -> empty string, no error.
 	s := gittest.New().
@@ -115,7 +115,7 @@ func TestBranchUpstreamUnset(t *testing.T) {
 }
 
 func TestGetConfigUnset(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	s := gittest.New().Register("", gittest.Exit(1), "config", "--get", "some.key")
 	v, err := git.GetConfig(ctx, s, "some.key")
 	if err != nil {
@@ -127,7 +127,7 @@ func TestGetConfigUnset(t *testing.T) {
 }
 
 func TestGetConfigError(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	s := gittest.New().Register("", &git.Error{ExitCode: 2, Stderr: "boom"}, "config", "--get", "some.key")
 	_, err := git.GetConfig(ctx, s, "some.key")
 	if err == nil {
@@ -136,7 +136,7 @@ func TestGetConfigError(t *testing.T) {
 }
 
 func TestHasLocalBranch(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	argv := []string{"rev-parse", "--verify", "--quiet", "refs/heads/feature"}
 	notRepo := &git.Error{ExitCode: 128, Stderr: "fatal: not a git repository"}
 
@@ -168,7 +168,7 @@ func TestHasLocalBranch(t *testing.T) {
 }
 
 func TestRemoteBranchExists(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	// The fully qualified ref must be passed so ls-remote does not suffix-match
 	// e.g. refs/heads/foo/feature.
 	argv := []string{"ls-remote", "--exit-code", "--heads", "origin", "refs/heads/feature"}
@@ -201,7 +201,7 @@ func TestRemoteBranchExists(t *testing.T) {
 }
 
 func TestAheadCount(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	s := gittest.New().Register("3\n", nil, "rev-list", "--count", "origin/main..feature")
 	n, err := git.AheadCount(ctx, s, "feature", "origin/main")
 	if err != nil {
@@ -218,7 +218,7 @@ func TestCommits(t *testing.T) {
 	s.FailUnstubbed = true
 	s.Register(out, nil, "log", "--pretty=format:%H%x00%s%x00%b%x1e", "--end-of-options", "origin/main..feature")
 
-	commits, err := git.Commits(context.Background(), s, "origin/main", "feature")
+	commits, err := git.Commits(t.Context(), s, "origin/main", "feature")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestCommits(t *testing.T) {
 
 func TestCommitsEmptyBase(t *testing.T) {
 	s := gittest.New()
-	if _, err := git.Commits(context.Background(), s, "", "feature"); err == nil {
+	if _, err := git.Commits(t.Context(), s, "", "feature"); err == nil {
 		t.Fatal("expected error for empty base")
 	}
 	if len(s.Calls) != 0 {
@@ -251,7 +251,7 @@ func TestErrorMessage(t *testing.T) {
 }
 
 func TestInteractiveArgs(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tests := []struct {
 		name string
 		run  func(git.Runner) error
@@ -311,7 +311,7 @@ func gitClient(t *testing.T, dir string) *git.Client {
 // mustRun runs git through c and fails the test on error.
 func mustRun(t *testing.T, c *git.Client, args ...string) string {
 	t.Helper()
-	out, err := c.Run(context.Background(), args...)
+	out, err := c.Run(t.Context(), args...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func mustRun(t *testing.T, c *git.Client, args ...string) string {
 // Integration test: exercises the real git binary in a temp repo.
 func TestRemotesIntegration(t *testing.T) {
 	c := gitClient(t, t.TempDir())
-	ctx := context.Background()
+	ctx := t.Context()
 
 	mustRun(t, c, "init")
 	mustRun(t, c, "remote", "add", "origin", "git@bitbucket.org:ows/repo.git")
@@ -351,7 +351,7 @@ func TestRemotesIntegration(t *testing.T) {
 // Integration test: branch existence checks against a real repository and a
 // local "remote", including the ls-remote suffix-match case.
 func TestBranchExistsIntegration(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	root := t.TempDir()
 	remoteDir := filepath.Join(root, "remote.git")
 	c := gitClient(t, filepath.Join(root, "work"))
@@ -397,7 +397,7 @@ func TestClientRunStderrInError(t *testing.T) {
 	c := gitClient(t, t.TempDir())
 	mustRun(t, c, "init")
 
-	_, err := c.Run(context.Background(), "rev-parse", "--verify", "no-such-ref")
+	_, err := c.Run(t.Context(), "rev-parse", "--verify", "no-such-ref")
 	var ge *git.Error
 	if !errors.As(err, &ge) {
 		t.Fatalf("err = %v (%T), want *git.Error", err, err)
@@ -422,7 +422,7 @@ func TestClientRunTrimsTrailingNewline(t *testing.T) {
 
 func TestClientRunContextCancelled(t *testing.T) {
 	c := gitClient(t, t.TempDir())
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	_, err := c.Run(ctx, "--version")
@@ -436,7 +436,7 @@ func TestClientRunContextCancelled(t *testing.T) {
 
 func TestClientRunExecFailureIncludesArgv(t *testing.T) {
 	c := &git.Client{GitPath: filepath.Join(t.TempDir(), "no-such-git")}
-	_, err := c.Run(context.Background(), "status", "--short")
+	_, err := c.Run(t.Context(), "status", "--short")
 	if err == nil {
 		t.Fatal("expected error")
 	}

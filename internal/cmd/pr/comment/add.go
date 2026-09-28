@@ -17,7 +17,7 @@ type AddOptions struct {
 	IO        *cmdutil.IOStreams
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
-	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
+	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 
 	Arg      string
 	Body     string
@@ -86,7 +86,7 @@ func NewCmdAdd(f *cmdutil.Factory, runF func(*AddOptions) error) *cobra.Command 
 			if runF != nil {
 				return runF(opts)
 			}
-			return addRun(opts)
+			return addRun(cmd.Context(), opts)
 		},
 	}
 
@@ -98,9 +98,7 @@ func NewCmdAdd(f *cmdutil.Factory, runF func(*AddOptions) error) *cobra.Command 
 	return cmd
 }
 
-func addRun(opts *AddOptions) error {
-	ctx := context.Background()
-
+func addRun(ctx context.Context, opts *AddOptions) error {
 	body, err := resolveBody(opts.IO, opts.Body, opts.BodyFile)
 	if err != nil {
 		return err

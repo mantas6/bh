@@ -45,7 +45,7 @@ func TestListThreadedWithInlineAndResolved(t *testing.T) {
 	listComments(srv, []api.Comment{reply, root, deleted})
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	if err := listRun(newListOpts(srv, ios)); err != nil {
+	if err := listRun(t.Context(), newListOpts(srv, ios)); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 
@@ -85,7 +85,7 @@ func TestListInlineOldSide(t *testing.T) {
 	listComments(srv, []api.Comment{c})
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	if err := listRun(newListOpts(srv, ios)); err != nil {
+	if err := listRun(t.Context(), newListOpts(srv, ios)); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	if !strings.Contains(out.String(), "old old.go:7") {
@@ -103,7 +103,7 @@ func TestListUnresolvedFilter(t *testing.T) {
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := newListOpts(srv, ios)
 	opts.Unresolved = true
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	got := out.String()
@@ -120,7 +120,7 @@ func TestListEmpty(t *testing.T) {
 	listComments(srv, []api.Comment{})
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
-	if err := listRun(newListOpts(srv, ios)); err != nil {
+	if err := listRun(t.Context(), newListOpts(srv, ios)); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	if got := out.String(); !strings.Contains(got, "No comments on pull request #123") {
@@ -141,7 +141,7 @@ func TestListJSON(t *testing.T) {
 	opts := newListOpts(srv, ios)
 	opts.JSON = true
 	opts.Unresolved = true
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 
@@ -172,7 +172,7 @@ func TestListLimitCountsThreads(t *testing.T) {
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := newListOpts(srv, ios)
 	opts.Limit = 1
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	got := out.String()
@@ -200,7 +200,7 @@ func TestListLimitJSONCountsThreads(t *testing.T) {
 	opts := newListOpts(srv, ios)
 	opts.Limit = 1
 	opts.JSON = true
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	var got []api.Comment
@@ -223,7 +223,7 @@ func TestListNilNow(t *testing.T) {
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := newListOpts(srv, ios)
 	opts.Now = nil
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	if !strings.Contains(out.String(), "#1 ada") {
@@ -258,7 +258,7 @@ func TestListCurrentBranch(t *testing.T) {
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := newListOpts(srv, ios)
 	opts.Arg = ""
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	if !strings.Contains(out.String(), "#1 ada") {
@@ -297,7 +297,7 @@ func TestListByBranchWithoutGit(t *testing.T) {
 	opts := newListOpts(srv, ios)
 	opts.Arg = "feature"
 	opts.Git = nil // a branch selector must not need git
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	if q := srv.Requests[0].Query.Get("q"); !strings.Contains(q, `source.branch.name="feature"`) {
@@ -319,7 +319,7 @@ func TestListByURLWithoutGitOrBaseRepo(t *testing.T) {
 	opts.Arg = "https://bitbucket.org/other/repo/pull-requests/9"
 	opts.Git = nil
 	opts.BaseRepo = nil
-	if err := listRun(opts); err != nil {
+	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
 	if !strings.Contains(out.String(), "#1 ada") {

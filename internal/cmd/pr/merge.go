@@ -17,7 +17,7 @@ type MergeOptions struct {
 	IO        *cmdutil.IOStreams
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
-	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
+	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 
 	Arg          string
 	Merge        bool
@@ -71,7 +71,7 @@ func NewCmdMerge(f *cmdutil.Factory, runF func(*MergeOptions) error) *cobra.Comm
 			if runF != nil {
 				return runF(opts)
 			}
-			return mergeRun(opts)
+			return mergeRun(cmd.Context(), opts)
 		},
 	}
 
@@ -99,9 +99,7 @@ func flagStrategy(opts *MergeOptions) string {
 	}
 }
 
-func mergeRun(opts *MergeOptions) error {
-	ctx := context.Background()
-
+func mergeRun(ctx context.Context, opts *MergeOptions) error {
 	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err

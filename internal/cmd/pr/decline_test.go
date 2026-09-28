@@ -33,7 +33,7 @@ func TestDecline(t *testing.T) {
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
 	}
-	if err := declineRun(opts); err != nil {
+	if err := declineRun(t.Context(), opts); err != nil {
 		t.Fatalf("declineRun: %v", err)
 	}
 	if findRequest(srv, "POST", "/pullrequests/123/decline") == nil {
@@ -61,7 +61,7 @@ func TestDeclineDeleteBranch(t *testing.T) {
 		Arg:          "123",
 		DeleteBranch: true,
 	}
-	if err := declineRun(opts); err != nil {
+	if err := declineRun(t.Context(), opts); err != nil {
 		t.Fatalf("declineRun: %v", err)
 	}
 
@@ -100,7 +100,7 @@ func newDeclineDeleteOpts(t *testing.T) (opts *DeclineOptions, stub *gittest.Stu
 func TestDeclineDeleteBranchUnmergedNonTTYWarns(t *testing.T) {
 	opts, stub, _, errOut := newDeclineDeleteOpts(t)
 
-	if err := declineRun(opts); err != nil {
+	if err := declineRun(t.Context(), opts); err != nil {
 		t.Fatalf("declineRun: %v", err)
 	}
 	assertCalls(t, stub.CallStrings(), []string{
@@ -119,7 +119,7 @@ func TestDeclineDeleteBranchUnmergedTTYForceConfirmed(t *testing.T) {
 	opts.IO.SetStdinTTY(true)
 	in.WriteString("y\n")
 
-	if err := declineRun(opts); err != nil {
+	if err := declineRun(t.Context(), opts); err != nil {
 		t.Fatalf("declineRun: %v", err)
 	}
 	assertCalls(t, stub.CallStrings(), []string{
@@ -143,7 +143,7 @@ func TestDeclineDeleteBranchUnmergedTTYDeclined(t *testing.T) {
 	opts.IO.SetStdinTTY(true)
 	in.WriteString("n\n")
 
-	if err := declineRun(opts); err != nil {
+	if err := declineRun(t.Context(), opts); err != nil {
 		t.Fatalf("declineRun: %v", err)
 	}
 	for _, c := range stub.CallStrings() {
@@ -172,7 +172,7 @@ func TestDeclineDeleteBranchForkSkipped(t *testing.T) {
 		Arg:          "123",
 		DeleteBranch: true,
 	}
-	if err := declineRun(opts); err != nil {
+	if err := declineRun(t.Context(), opts); err != nil {
 		t.Fatalf("declineRun: %v", err)
 	}
 	if len(stub.Calls) != 0 {
@@ -197,7 +197,7 @@ func TestDeclineNotOpenErrors(t *testing.T) {
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
 	}
-	err := declineRun(opts)
+	err := declineRun(t.Context(), opts)
 	if err == nil || !strings.Contains(err.Error(), "pull request #123 is declined") {
 		t.Fatalf("err = %v", err)
 	}
@@ -249,7 +249,7 @@ func TestDeclineDeleteBranchWithoutRemoteErrors(t *testing.T) {
 		Arg:          "123",
 		DeleteBranch: true,
 	}
-	err := declineRun(opts)
+	err := declineRun(t.Context(), opts)
 	if err == nil || !strings.Contains(err.Error(), "no git remote found for myws/myrepo") {
 		t.Fatalf("err = %v", err)
 	}

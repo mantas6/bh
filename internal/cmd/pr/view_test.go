@@ -28,7 +28,7 @@ func TestViewText(t *testing.T) {
 	opts := newViewOptions(srv)
 	opts.IO = ios
 
-	if err := viewRun(opts); err != nil {
+	if err := viewRun(t.Context(), opts); err != nil {
 		t.Fatalf("viewRun: %v", err)
 	}
 
@@ -57,7 +57,7 @@ func TestViewForkPrefix(t *testing.T) {
 	opts := newViewOptions(srv)
 	opts.IO = ios
 
-	if err := viewRun(opts); err != nil {
+	if err := viewRun(t.Context(), opts); err != nil {
 		t.Fatalf("viewRun: %v", err)
 	}
 	if !strings.Contains(out.String(), "merge fork/myrepo:feature into main") {
@@ -75,7 +75,7 @@ func TestViewNoDescription(t *testing.T) {
 	opts := newViewOptions(srv)
 	opts.IO = ios
 
-	if err := viewRun(opts); err != nil {
+	if err := viewRun(t.Context(), opts); err != nil {
 		t.Fatalf("viewRun: %v", err)
 	}
 	if !strings.Contains(out.String(), "No description provided") {
@@ -92,7 +92,7 @@ func TestViewJSON(t *testing.T) {
 	opts.IO = ios
 	opts.JSON = true
 
-	if err := viewRun(opts); err != nil {
+	if err := viewRun(t.Context(), opts); err != nil {
 		t.Fatalf("viewRun: %v", err)
 	}
 	var pr api.PullRequest
@@ -115,7 +115,7 @@ func TestViewWeb(t *testing.T) {
 	opts.Web = true
 	opts.Browser = fb
 
-	if err := viewRun(opts); err != nil {
+	if err := viewRun(t.Context(), opts); err != nil {
 		t.Fatalf("viewRun: %v", err)
 	}
 	if fb.url != "https://bitbucket.org/myws/myrepo/pull-requests/123" {

@@ -1,7 +1,6 @@
 package api_test
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -18,7 +17,7 @@ func TestCreatePullRequestBodyShape(t *testing.T) {
 	c := srv.Client()
 
 	rev := "{reviewer-uuid}"
-	pr, err := c.CreatePullRequest(context.Background(), "ws/repo", api.CreatePRInput{
+	pr, err := c.CreatePullRequest(t.Context(), "ws/repo", api.CreatePRInput{
 		Title:             "Feature",
 		Description:       "Body",
 		SourceBranch:      "feat",
@@ -68,7 +67,7 @@ func TestCreatePullRequestOmitsDestination(t *testing.T) {
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests", 201,
 		map[string]any{"id": 1})
 	c := srv.Client()
-	if _, err := c.CreatePullRequest(context.Background(), "ws/repo", api.CreatePRInput{
+	if _, err := c.CreatePullRequest(t.Context(), "ws/repo", api.CreatePRInput{
 		Title:        "T",
 		SourceBranch: "b",
 	}); err != nil {
@@ -97,7 +96,7 @@ func TestPullRequestForBranch(t *testing.T) {
 		w.Write([]byte(`{"values":[{"id":7,"state":"OPEN"}]}`))
 	})
 	c := srv.Client()
-	pr, err := c.PullRequestForBranch(context.Background(), "ws/repo", "feature/x")
+	pr, err := c.PullRequestForBranch(t.Context(), "ws/repo", "feature/x")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +119,7 @@ func TestPullRequestForBranchEscapesQuery(t *testing.T) {
 		w.Write([]byte(`{"values":[{"id":7,"state":"OPEN"}]}`))
 	})
 	c := srv.Client()
-	if _, err := c.PullRequestForBranch(context.Background(), "ws/repo", `x" OR state="MERGED`); err != nil {
+	if _, err := c.PullRequestForBranch(t.Context(), "ws/repo", `x" OR state="MERGED`); err != nil {
 		t.Fatal(err)
 	}
 	want := `source.branch.name="x\" OR state=\"MERGED" AND state="OPEN"`
@@ -148,7 +147,7 @@ func TestListPullRequestsEmptyIsNonNil(t *testing.T) {
 	srv := apitest.New(t)
 	srv.Handle(http.MethodGet, "/repositories/ws/repo/pullrequests", 200, `{"values":[]}`)
 	c := srv.Client()
-	prs, err := c.ListPullRequests(context.Background(), "ws/repo", api.ListPROptions{})
+	prs, err := c.ListPullRequests(t.Context(), "ws/repo", api.ListPROptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +161,7 @@ func TestPullRequestForBranchNone(t *testing.T) {
 	srv.Handle(http.MethodGet, "/repositories/ws/repo/pullrequests", 200,
 		`{"values":[]}`)
 	c := srv.Client()
-	_, err := c.PullRequestForBranch(context.Background(), "ws/repo", "nope")
+	_, err := c.PullRequestForBranch(t.Context(), "ws/repo", "nope")
 	if err == nil || !strings.Contains(err.Error(), "no open pull request found for branch") {
 		t.Fatalf("err = %v", err)
 	}
@@ -176,7 +175,7 @@ func TestListPullRequestsState(t *testing.T) {
 		w.Write([]byte(`{"values":[]}`))
 	})
 	c := srv.Client()
-	if _, err := c.ListPullRequests(context.Background(), "ws/repo", api.ListPROptions{
+	if _, err := c.ListPullRequests(t.Context(), "ws/repo", api.ListPROptions{
 		State: []string{"OPEN", "MERGED"},
 	}); err != nil {
 		t.Fatal(err)
@@ -203,7 +202,7 @@ func TestMergePolling(t *testing.T) {
 		w.Write([]byte(`{"task_status":"SUCCESS","merge_result":{"id":5,"state":"MERGED"}}`))
 	})
 	c := srv.Client()
-	pr, err := c.MergePullRequest(context.Background(), "ws/repo", 5, api.MergeInput{Strategy: "squash"})
+	pr, err := c.MergePullRequest(t.Context(), "ws/repo", 5, api.MergeInput{Strategy: "squash"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +227,7 @@ func TestMergeSync(t *testing.T) {
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/5/merge", 200,
 		map[string]any{"id": 5, "state": "MERGED"})
 	c := srv.Client()
-	pr, err := c.MergePullRequest(context.Background(), "ws/repo", 5, api.MergeInput{})
+	pr, err := c.MergePullRequest(t.Context(), "ws/repo", 5, api.MergeInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +247,7 @@ func TestApproveDeclineChanges(t *testing.T) {
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/1/decline", 200,
 		map[string]any{"id": 1, "state": "DECLINED"})
 	c := srv.Client()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	if err := c.ApprovePullRequest(ctx, "ws/repo", 1); err != nil {
 		t.Errorf("approve: %v", err)
@@ -276,7 +275,7 @@ func TestUpdatePullRequest(t *testing.T) {
 	srv.Handle(http.MethodPut, "/repositories/ws/repo/pullrequests/9", 200,
 		map[string]any{"id": 9, "title": "New"})
 	c := srv.Client()
-	pr, err := c.UpdatePullRequest(context.Background(), "ws/repo", 9, map[string]any{"title": "New"})
+	pr, err := c.UpdatePullRequest(t.Context(), "ws/repo", 9, map[string]any{"title": "New"})
 	if err != nil {
 		t.Fatal(err)
 	}

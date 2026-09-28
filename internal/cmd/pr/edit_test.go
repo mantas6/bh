@@ -33,7 +33,7 @@ func TestEditChangedKeysAndReviewers(t *testing.T) {
 		RemoveReviewers: []string{"bob"},
 	}
 
-	if err := editRun(opts); err != nil {
+	if err := editRun(t.Context(), opts); err != nil {
 		t.Fatalf("editRun: %v", err)
 	}
 
@@ -83,7 +83,7 @@ func TestEditDraftReady(t *testing.T) {
 		Ready:     true,
 	}
 
-	if err := editRun(opts); err != nil {
+	if err := editRun(t.Context(), opts); err != nil {
 		t.Fatalf("editRun: %v", err)
 	}
 	req := findRequest(srv, "PUT", "/pullrequests/123")
@@ -101,7 +101,7 @@ func TestEditNoFlags(t *testing.T) {
 		BaseRepo: baseRepoFunc(nil),
 		Arg:      "123",
 	}
-	err := editRun(opts)
+	err := editRun(t.Context(), opts)
 	if err == nil || !strings.Contains(err.Error(), "specify at least one flag to edit") {
 		t.Fatalf("err = %v", err)
 	}

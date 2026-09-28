@@ -38,7 +38,7 @@ func TestLoginWithTokenSaves(t *testing.T) {
 		WithToken:    true,
 	}
 
-	if err := loginRun(opts); err != nil {
+	if err := loginRun(t.Context(), opts); err != nil {
 		t.Fatalf("loginRun: %v", err)
 	}
 
@@ -82,7 +82,7 @@ func TestLoginInvalidTokenDoesNotSave(t *testing.T) {
 		WithToken:    true,
 	}
 
-	err := loginRun(opts)
+	err := loginRun(t.Context(), opts)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -107,7 +107,7 @@ func TestLoginNonTTYWithoutToken(t *testing.T) {
 		Config: config.Load,
 	}
 
-	err := loginRun(opts)
+	err := loginRun(t.Context(), opts)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -135,7 +135,7 @@ func TestLoginInteractiveBasic(t *testing.T) {
 		ReadPassword: func() (string, error) { return "interactive-token", nil },
 	}
 
-	if err := loginRun(opts); err != nil {
+	if err := loginRun(t.Context(), opts); err != nil {
 		t.Fatalf("loginRun: %v", err)
 	}
 
@@ -173,7 +173,7 @@ func TestLoginWarnsOnBHToken(t *testing.T) {
 		WithToken:    true,
 	}
 
-	if err := loginRun(opts); err != nil {
+	if err := loginRun(t.Context(), opts); err != nil {
 		t.Fatalf("loginRun: %v", err)
 	}
 	if !strings.Contains(errOut.String(), "BH_TOKEN environment variable is set") {

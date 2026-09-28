@@ -18,7 +18,7 @@ import (
 type ListOptions struct {
 	IO        *cmdutil.IOStreams
 	APIClient func() (*api.Client, error)
-	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
+	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 	Browser   cmdutil.Browser
 	Now       func() time.Time
 
@@ -52,7 +52,7 @@ func NewCmdList(f *cmdutil.Factory, runF func(*ListOptions) error) *cobra.Comman
 			if runF != nil {
 				return runF(opts)
 			}
-			return listRun(opts)
+			return listRun(cmd.Context(), opts)
 		},
 	}
 
@@ -66,10 +66,8 @@ func NewCmdList(f *cmdutil.Factory, runF func(*ListOptions) error) *cobra.Comman
 	return cmd
 }
 
-func listRun(opts *ListOptions) error {
-	ctx := context.Background()
-
-	repo, _, err := opts.BaseRepo()
+func listRun(ctx context.Context, opts *ListOptions) error {
+	repo, _, err := opts.BaseRepo(ctx)
 	if err != nil {
 		return err
 	}

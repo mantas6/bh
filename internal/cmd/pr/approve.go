@@ -16,7 +16,7 @@ type ApproveOptions struct {
 	IO        *cmdutil.IOStreams
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
-	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
+	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 
 	Arg  string
 	Undo bool
@@ -42,7 +42,7 @@ func NewCmdApprove(f *cmdutil.Factory, runF func(*ApproveOptions) error) *cobra.
 			if runF != nil {
 				return runF(opts)
 			}
-			return approveRun(opts)
+			return approveRun(cmd.Context(), opts)
 		},
 	}
 
@@ -51,9 +51,7 @@ func NewCmdApprove(f *cmdutil.Factory, runF func(*ApproveOptions) error) *cobra.
 	return cmd
 }
 
-func approveRun(opts *ApproveOptions) error {
-	ctx := context.Background()
-
+func approveRun(ctx context.Context, opts *ApproveOptions) error {
 	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
 	if err != nil {
 		return err

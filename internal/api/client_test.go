@@ -1,7 +1,6 @@
 package api_test
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -34,7 +33,7 @@ func TestAuthBearer(t *testing.T) {
 	})
 	c := api.NewClient(srv.URL, "sekret", "")
 	c.HTTP = srv.Client().HTTP
-	if _, err := c.CurrentUser(context.Background()); err != nil {
+	if _, err := c.CurrentUser(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if got != "Bearer sekret" {
@@ -51,7 +50,7 @@ func TestAuthBasic(t *testing.T) {
 	})
 	c := api.NewClient(srv.URL, "tok", "me@example.com")
 	c.HTTP = srv.Client().HTTP
-	if _, err := c.CurrentUser(context.Background()); err != nil {
+	if _, err := c.CurrentUser(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	// base64("me@example.com:tok")
@@ -69,7 +68,7 @@ func TestAuthAnonymous(t *testing.T) {
 	})
 	c := api.NewClient(srv.URL, "", "")
 	c.HTTP = srv.Client().HTTP
-	if _, err := c.CurrentUser(context.Background()); err != nil {
+	if _, err := c.CurrentUser(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if hadAuth {
@@ -87,7 +86,7 @@ func TestUserAgent(t *testing.T) {
 	c := api.NewClient(srv.URL, "t", "")
 	c.HTTP = srv.Client().HTTP
 	c.UserAgent = "bh/1.2.3"
-	if _, err := c.CurrentUser(context.Background()); err != nil {
+	if _, err := c.CurrentUser(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if got != "bh/1.2.3" {
@@ -102,7 +101,7 @@ func TestDoRelativeAndAbsolute(t *testing.T) {
 
 	// relative
 	var u api.User
-	if _, err := c.Do(context.Background(), http.MethodGet, "/user", nil, nil, &u); err != nil {
+	if _, err := c.Do(t.Context(), http.MethodGet, "/user", nil, nil, &u); err != nil {
 		t.Fatal(err)
 	}
 	if u.DisplayName != "Rel" {
@@ -112,7 +111,7 @@ func TestDoRelativeAndAbsolute(t *testing.T) {
 	// absolute
 	var u2 api.User
 	abs := srv.URL + "/user"
-	if _, err := c.Do(context.Background(), http.MethodGet, abs, nil, nil, &u2); err != nil {
+	if _, err := c.Do(t.Context(), http.MethodGet, abs, nil, nil, &u2); err != nil {
 		t.Fatal(err)
 	}
 	if u2.DisplayName != "Rel" {
@@ -124,7 +123,7 @@ func TestDoNoContent(t *testing.T) {
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/1/approve", 204, nil)
 	c := srv.Client()
-	if err := c.ApprovePullRequest(context.Background(), "ws/repo", 1); err != nil {
+	if err := c.ApprovePullRequest(t.Context(), "ws/repo", 1); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -134,7 +133,7 @@ func TestErrorMapping(t *testing.T) {
 	srv.Handle(http.MethodGet, "/user", 401,
 		`{"error":{"message":"Access token expired."}}`)
 	c := srv.Client()
-	_, err := c.CurrentUser(context.Background())
+	_, err := c.CurrentUser(t.Context())
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -167,7 +166,7 @@ func TestErrorNotFound(t *testing.T) {
 	srv.Handle(http.MethodGet, "/repositories/ws/repo", 404,
 		`{"error":{"message":"No such repo"}}`)
 	c := srv.Client()
-	_, err := c.Repository(context.Background(), "ws/repo")
+	_, err := c.Repository(t.Context(), "ws/repo")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -196,7 +195,7 @@ func TestPaginateThreePages(t *testing.T) {
 		}
 	})
 	c := srv.Client()
-	prs, err := c.ListPullRequests(context.Background(), "ws/repo", api.ListPROptions{})
+	prs, err := c.ListPullRequests(t.Context(), "ws/repo", api.ListPROptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +224,7 @@ func TestPaginateLimitStopsFetching(t *testing.T) {
 		}
 	})
 	c := srv.Client()
-	prs, err := c.ListPullRequests(context.Background(), "ws/repo", api.ListPROptions{Limit: 3})
+	prs, err := c.ListPullRequests(t.Context(), "ws/repo", api.ListPROptions{Limit: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +244,7 @@ func TestPaginateDefaultPagelen(t *testing.T) {
 		fmt.Fprint(w, `{"values":[]}`)
 	})
 	c := srv.Client()
-	if _, err := c.ListPullRequests(context.Background(), "ws/repo", api.ListPROptions{}); err != nil {
+	if _, err := c.ListPullRequests(t.Context(), "ws/repo", api.ListPROptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if pagelen != "50" {

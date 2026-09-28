@@ -17,7 +17,7 @@ type CheckoutOptions struct {
 	IO        *cmdutil.IOStreams
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
-	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
+	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 
 	Arg    string
 	Branch string
@@ -65,7 +65,7 @@ func NewCmdCheckout(f *cmdutil.Factory, runF func(*CheckoutOptions) error) *cobr
 			if runF != nil {
 				return runF(opts)
 			}
-			return checkoutRun(opts)
+			return checkoutRun(cmd.Context(), opts)
 		},
 	}
 
@@ -76,9 +76,7 @@ func NewCmdCheckout(f *cmdutil.Factory, runF func(*CheckoutOptions) error) *cobr
 	return cmd
 }
 
-func checkoutRun(opts *CheckoutOptions) error {
-	ctx := context.Background()
-
+func checkoutRun(ctx context.Context, opts *CheckoutOptions) error {
 	gitRunner, err := opts.Git()
 	if err != nil {
 		return err

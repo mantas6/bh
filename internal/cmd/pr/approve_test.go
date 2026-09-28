@@ -1,6 +1,7 @@
 package pr
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -24,7 +25,7 @@ func TestApprove(t *testing.T) {
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
 	}
-	if err := approveRun(opts); err != nil {
+	if err := approveRun(t.Context(), opts); err != nil {
 		t.Fatalf("approveRun: %v", err)
 	}
 
@@ -51,7 +52,7 @@ func TestApproveUndo(t *testing.T) {
 		Arg:       "123",
 		Undo:      true,
 	}
-	if err := approveRun(opts); err != nil {
+	if err := approveRun(t.Context(), opts); err != nil {
 		t.Fatalf("approveRun: %v", err)
 	}
 
@@ -101,7 +102,7 @@ func TestApproveStderrIconUncolouredWhenRedirected(t *testing.T) {
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
 	}
-	if err := approveRun(opts); err != nil {
+	if err := approveRun(t.Context(), opts); err != nil {
 		t.Fatalf("approveRun: %v", err)
 	}
 	if got := errOut.String(); strings.Contains(got, "\x1b[") || !strings.HasPrefix(got, "✓ ") {
@@ -119,5 +120,32 @@ func TestApproveTooManyArgs(t *testing.T) {
 	var fe *cmdutil.FlagError
 	if err := cmd.Execute(); !errors.As(err, &fe) {
 		t.Fatalf("expected FlagError, got %v", err)
+	}
+}
+
+// The command context reaches the API client: a cancelled context aborts the
+// command before any request is sent.
+func TestApproveCancelledContext(t *testing.T) {
+	srv := apitest.New(t) // no routes: any request that arrives fails the test
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	f := &cmdutil.Factory{
+		IOStreams: ios,
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		Git:       gitFunc(gittest.New()),
+		BaseRepo:  baseRepoFunc(originRemote()),
+	}
+	cmd := NewCmdApprove(f, nil)
+	cmd.SetArgs([]string{"123"})
+	cmd.SetOut(ios.Out)
+	cmd.SetErr(ios.ErrOut)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := cmd.ExecuteContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if len(srv.Requests) != 0 {
+		t.Errorf("requests = %v, want none", srv.Requests)
 	}
 }

@@ -1,6 +1,7 @@
 package pr
 
 import (
+	"context"
 	"time"
 
 	"github.com/mantas6/bh/internal/api"
@@ -56,8 +57,8 @@ func testRepo() git.Repo {
 
 // baseRepoFunc returns a BaseRepo resolver yielding testRepo and the supplied
 // resolved remote.
-func baseRepoFunc(rr *git.ResolvedRemote) func() (git.Repo, *git.ResolvedRemote, error) {
-	return func() (git.Repo, *git.ResolvedRemote, error) {
+func baseRepoFunc(rr *git.ResolvedRemote) func(context.Context) (git.Repo, *git.ResolvedRemote, error) {
+	return func(context.Context) (git.Repo, *git.ResolvedRemote, error) {
 		return testRepo(), rr, nil
 	}
 }

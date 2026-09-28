@@ -5,6 +5,8 @@
 package cmdutil
 
 import (
+	"context"
+
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/config"
 	"github.com/mantas6/bh/internal/git"
@@ -41,6 +43,7 @@ type Factory struct {
 
 	// BaseRepo resolves the base repository using the precedence
 	// -R/--repo > BH_REPO > upstream > origin > first Bitbucket remote. The
-	// returned *git.ResolvedRemote is the matching git remote, or nil.
-	BaseRepo func() (git.Repo, *git.ResolvedRemote, error)
+	// returned *git.ResolvedRemote is the matching git remote, or nil. ctx
+	// bounds the git invocations used to list remotes.
+	BaseRepo func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 }

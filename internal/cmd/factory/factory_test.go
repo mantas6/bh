@@ -48,7 +48,7 @@ func TestBaseRepoOverrideWithoutGit(t *testing.T) {
 	f := New("test")
 	f.RepoOverride = "ws/repo"
 
-	repo, rr, err := f.BaseRepo()
+	repo, rr, err := f.BaseRepo(t.Context())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestBaseRepoOverrideWithoutGit(t *testing.T) {
 
 	// Without an override the missing git binary is still an error.
 	f.RepoOverride = ""
-	if _, _, err := f.BaseRepo(); err == nil {
+	if _, _, err := f.BaseRepo(t.Context()); err == nil {
 		t.Fatal("expected error without override and git, got nil")
 	}
 }
@@ -92,7 +92,7 @@ func TestBaseRepoOutsideCheckout(t *testing.T) {
 			f := New("test")
 			f.RepoOverride = tt.flag
 
-			repo, rr, err := f.BaseRepo()
+			repo, rr, err := f.BaseRepo(t.Context())
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
