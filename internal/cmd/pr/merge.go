@@ -113,20 +113,20 @@ func mergeRun(opts *MergeOptions) error {
 			pr.ID, strings.ToLower(pr.State))
 	}
 
+	// Without a strategy flag nothing is sent, so Bitbucket applies the
+	// destination branch's configured default.
 	strategy := flagStrategy(opts)
-	if strategy == "" {
-		strategy = pr.Destination.Branch.DefaultMergeStrategy
-		if strategy == "" {
-			strategy = "merge_commit"
-		}
-	}
 
-	if flagStrategy(opts) == "" && !opts.Yes {
+	if strategy == "" && !opts.Yes {
 		if !opts.IO.IsStdinTTY() {
 			return fmt.Errorf("specify a merge strategy (--merge, --squash, --fast-forward) or --yes when not running interactively")
 		}
+		using := "the default merge strategy"
+		if s := pr.Destination.Branch.DefaultMergeStrategy; s != "" {
+			using = s
+		}
 		ok, err := opts.IO.Prompter().Confirm(fmt.Sprintf("Merge pull request #%d (%s) into %s using %s?",
-			pr.ID, pr.Title, pr.Destination.Branch.Name, strategy), true)
+			pr.ID, pr.Title, pr.Destination.Branch.Name, using), true)
 		if err != nil {
 			return err
 		}
@@ -143,19 +143,26 @@ func mergeRun(opts *MergeOptions) error {
 		return err
 	}
 
-	fmt.Fprintf(opts.IO.ErrOut, "%s Merged pull request #%d (%s)\n", opts.IO.ErrColorScheme().SuccessIcon(), pr.ID, pr.Title)
+	cs := opts.IO.ErrColorScheme()
+	fmt.Fprintf(opts.IO.ErrOut, "%s Merged pull request #%d (%s)\n", cs.SuccessIcon(), pr.ID, pr.Title)
 
 	// The remote source branch is closed by the API; only the local branch
-	// is cleaned up, and only when this checkout has a remote for the repo.
-	if opts.DeleteBranch && found.Remote != nil && shared.SameRepoPR(pr, repo) {
-		gitRunner, err := opts.Git()
-		if err != nil {
-			return err
-		}
-		if err := deleteLocalSourceBranch(ctx, gitRunner, opts.IO, pr.Source.Branch.Name, pr.Destination.Branch.Name); err != nil {
-			return err
-		}
+	// is cleaned up, and only when this checkout has a remote for the PR's
+	// repo (i.e. the working directory is a clone of it). There is no
+	// fallback to "origin".
+	if !opts.DeleteBranch || !shared.SameRepoPR(pr, repo) {
+		return nil
 	}
-
-	return nil
+	if found.Remote == nil {
+		fmt.Fprintf(opts.IO.ErrOut, "%s Skipped deleting local branch %s: no git remote found for %s\n",
+			cs.WarningIcon(), pr.Source.Branch.Name, repo.FullName())
+		return nil
+	}
+	gitRunner, err := opts.Git()
+	if err != nil {
+		return err
+	}
+	// The PR is merged, but a squash merge leaves the local commits
+	// unreachable from the destination, so the branch is force-deleted.
+	return deleteLocalSourceBranch(ctx, gitRunner, opts.IO, pr.Source.Branch.Name, pr.Destination.Branch.Name, true)
 }

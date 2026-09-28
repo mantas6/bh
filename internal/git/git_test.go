@@ -267,7 +267,9 @@ func TestInteractiveArgs(t *testing.T) {
 			[]string{"checkout", "--end-of-options", "main"}},
 		{"reset hard", func(r git.Runner) error { return git.ResetHard(ctx, r, "origin/main") },
 			[]string{"reset", "--hard", "--end-of-options", "origin/main"}},
-		{"delete local branch", func(r git.Runner) error { return git.DeleteLocalBranch(ctx, r, "feature") },
+		{"delete local branch", func(r git.Runner) error { return git.DeleteLocalBranch(ctx, r, "feature", false) },
+			[]string{"branch", "-d", "--end-of-options", "feature"}},
+		{"force delete local branch", func(r git.Runner) error { return git.DeleteLocalBranch(ctx, r, "feature", true) },
 			[]string{"branch", "-D", "--end-of-options", "feature"}},
 	}
 	for _, tt := range tests {

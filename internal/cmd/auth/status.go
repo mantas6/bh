@@ -54,26 +54,28 @@ func statusRun(opts *StatusOptions) error {
 	host := config.DefaultHost
 	token, source := cfg.Token(host)
 	if token == "" {
-		return fmt.Errorf("not logged in to %s; run `bh auth login`", host)
+		return cmdutil.NotLoggedInError(host)
 	}
 	email := cfg.Email(host)
-
-	out := opts.IO.Out
-	cs := opts.IO.ColorScheme()
-	fmt.Fprintln(out, host)
 
 	client := opts.APIClientFor(token, email)
 	user, err := client.CurrentUser(context.Background())
 	if err != nil {
-		msg := err.Error()
+		// Only a 401 means the token itself is bad; anything else (network
+		// failure, 403, 5xx) is reported as an ordinary error.
 		var he *api.HTTPError
-		if errors.As(err, &he) {
-			msg = he.Message
+		if !api.IsUnauthorized(err) || !errors.As(err, &he) {
+			return fmt.Errorf("could not verify the token for %s: %w", host, err)
 		}
-		fmt.Fprintf(out, "  %s Token for %s is invalid: %s\n", cs.FailureIcon(), host, msg)
+		cs := opts.IO.ErrColorScheme()
+		fmt.Fprintln(opts.IO.ErrOut, host)
+		fmt.Fprintf(opts.IO.ErrOut, "  %s Token for %s (%s) is invalid: %s\n", cs.FailureIcon(), host, source, he.Message)
 		return cmdutil.ErrSilent
 	}
 
+	out := opts.IO.Out
+	cs := opts.IO.ColorScheme()
+	fmt.Fprintln(out, host)
 	fmt.Fprintf(out, "  %s Logged in to %s as %s (%s)\n", cs.SuccessIcon(), host, displayName(user), source)
 	if email != "" {
 		fmt.Fprintf(out, "  - Auth mode: Basic (%s)\n", email)

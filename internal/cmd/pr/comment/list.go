@@ -47,6 +47,9 @@ func NewCmdList(f *cmdutil.Factory, runF func(*ListOptions) error) *cobra.Comman
 			if len(args) > 0 {
 				opts.Arg = args[0]
 			}
+			if opts.Limit < 0 {
+				return cmdutil.FlagErrorf("invalid value for --limit: %d", opts.Limit)
+			}
 			if runF != nil {
 				return runF(opts)
 			}
@@ -56,7 +59,7 @@ func NewCmdList(f *cmdutil.Factory, runF func(*ListOptions) error) *cobra.Comman
 
 	cmd.Flags().BoolVar(&opts.JSON, "json", false, "Output comments as JSON")
 	cmd.Flags().BoolVar(&opts.Unresolved, "unresolved", false, "Show only unresolved comment threads")
-	cmd.Flags().IntVarP(&opts.Limit, "limit", "L", 0, "Maximum number of comments to fetch (0 = all)")
+	cmd.Flags().IntVarP(&opts.Limit, "limit", "L", 0, "Maximum number of comment threads to show (0 = all)")
 
 	return cmd
 }
@@ -70,71 +73,49 @@ func listRun(opts *ListOptions) error {
 	}
 	pr, repo, client := found.PR, found.Repo, found.Client
 
-	comments, err := client.ListComments(ctx, repo.FullName(), pr.ID, opts.Limit)
+	// Fetch every comment: the limit counts threads, which can only be
+	// assembled once replies are known.
+	comments, err := client.ListComments(ctx, repo.FullName(), pr.ID, 0)
 	if err != nil {
 		return err
 	}
 
+	threads := buildThreads(comments, opts.Unresolved)
+	if opts.Limit > 0 && len(threads.roots) > opts.Limit {
+		threads.roots = threads.roots[:opts.Limit]
+	}
+
 	if opts.JSON {
-		return cmdutil.PrintJSON(opts.IO.Out, filterComments(comments, opts.Unresolved))
+		return cmdutil.PrintJSON(opts.IO.Out, threads.flatten(comments))
 	}
 
-	return printThreads(opts, pr.ID, comments)
-}
-
-// filterComments returns the flat list of non-deleted comments, dropping those
-// belonging to resolved threads when unresolved is true.
-func filterComments(comments []api.Comment, unresolved bool) []api.Comment {
-	byID := visibleIndex(comments)
-
-	out := make([]api.Comment, 0, len(comments))
-	for i := range comments {
-		c := &comments[i]
-		if c.Deleted {
-			continue
-		}
-		if unresolved && rootOf(c, byID).Resolution != nil {
-			continue
-		}
-		out = append(out, *c)
+	now := time.Now
+	if opts.Now != nil {
+		now = opts.Now
 	}
-	return out
+	return printThreads(opts.IO, now(), pr.ID, threads)
 }
 
-// visibleIndex maps id -> comment for all non-deleted comments.
-func visibleIndex(comments []api.Comment) map[int]*api.Comment {
+// threadSet is the comments of a pull request arranged into threads.
+type threadSet struct {
+	// roots are the top-level comments, oldest first.
+	roots []*api.Comment
+	// children maps a comment id to its visible replies, oldest first.
+	children map[int][]*api.Comment
+}
+
+// buildThreads arranges the non-deleted comments into threads. A reply whose
+// parent is deleted or missing becomes a root. With unresolved, threads whose
+// root is resolved are dropped.
+func buildThreads(comments []api.Comment, unresolved bool) *threadSet {
 	byID := make(map[int]*api.Comment, len(comments))
 	for i := range comments {
-		if comments[i].Deleted {
-			continue
+		if !comments[i].Deleted {
+			byID[comments[i].ID] = &comments[i]
 		}
-		byID[comments[i].ID] = &comments[i]
 	}
-	return byID
-}
 
-// rootOf follows the parent chain within the visible set. A comment whose
-// parent is hidden or missing is its own root.
-func rootOf(c *api.Comment, byID map[int]*api.Comment) *api.Comment {
-	cur := c
-	for cur.Parent != nil {
-		p, ok := byID[cur.Parent.ID]
-		if !ok {
-			break
-		}
-		cur = p
-	}
-	return cur
-}
-
-func printThreads(opts *ListOptions, prID int, comments []api.Comment) error {
-	cs := opts.IO.ColorScheme()
-	out := opts.IO.Out
-
-	byID := visibleIndex(comments)
-
-	children := map[int][]*api.Comment{}
-	var roots []*api.Comment
+	ts := &threadSet{children: map[int][]*api.Comment{}}
 	for i := range comments {
 		c := &comments[i]
 		if c.Deleted {
@@ -142,42 +123,64 @@ func printThreads(opts *ListOptions, prID int, comments []api.Comment) error {
 		}
 		if c.Parent != nil {
 			if _, ok := byID[c.Parent.ID]; ok {
-				children[c.Parent.ID] = append(children[c.Parent.ID], c)
+				ts.children[c.Parent.ID] = append(ts.children[c.Parent.ID], c)
 				continue
 			}
 		}
-		roots = append(roots, c)
-	}
-
-	sortByCreated(roots)
-	for _, ch := range children {
-		sortByCreated(ch)
-	}
-
-	var b strings.Builder
-	printed := 0
-	var walk func(c *api.Comment, level int)
-	walk = func(c *api.Comment, level int) {
-		printComment(&b, cs, opts.Now(), c, level)
-		printed++
-		for _, child := range children[c.ID] {
-			walk(child, level+1)
-		}
-	}
-
-	for _, root := range roots {
-		if opts.Unresolved && root.Resolution != nil {
+		if unresolved && c.Resolution != nil {
 			continue
 		}
-		walk(root, 0)
+		ts.roots = append(ts.roots, c)
 	}
 
-	if printed == 0 {
-		fmt.Fprintf(out, "No comments on pull request #%d\n", prID)
+	sortByCreated(ts.roots)
+	for _, ch := range ts.children {
+		sortByCreated(ch)
+	}
+	return ts
+}
+
+// walk calls fn for every comment in the threads, depth first, with its
+// nesting level.
+func (ts *threadSet) walk(fn func(c *api.Comment, level int)) {
+	var visit func(c *api.Comment, level int)
+	visit = func(c *api.Comment, level int) {
+		fn(c, level)
+		for _, child := range ts.children[c.ID] {
+			visit(child, level+1)
+		}
+	}
+	for _, root := range ts.roots {
+		visit(root, 0)
+	}
+}
+
+// flatten returns the comments belonging to the threads, in the API's order.
+func (ts *threadSet) flatten(comments []api.Comment) []api.Comment {
+	include := map[int]bool{}
+	ts.walk(func(c *api.Comment, _ int) { include[c.ID] = true })
+
+	out := make([]api.Comment, 0, len(include))
+	for _, c := range comments {
+		if !c.Deleted && include[c.ID] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func printThreads(ios *cmdutil.IOStreams, now time.Time, prID int, ts *threadSet) error {
+	if len(ts.roots) == 0 {
+		fmt.Fprintf(ios.Out, "No comments on pull request #%d\n", prID)
 		return nil
 	}
 
-	fmt.Fprint(out, b.String())
+	cs := ios.ColorScheme()
+	var b strings.Builder
+	ts.walk(func(c *api.Comment, level int) {
+		printComment(&b, cs, now, c, level)
+	})
+	fmt.Fprint(ios.Out, b.String())
 	return nil
 }
 

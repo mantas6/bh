@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmd/pr/shared"
@@ -22,7 +21,6 @@ type CreateOptions struct {
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
 	Browser   cmdutil.Browser
-	Now       func() time.Time
 
 	Title             string
 	Body              string
@@ -35,8 +33,6 @@ type CreateOptions struct {
 	Fill              bool
 	Push              bool
 	Web               bool
-
-	titleSet bool
 }
 
 // NewCmdCreate creates the "pr create" command.
@@ -47,7 +43,6 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
 		Browser:   f.Browser,
-		Now:       time.Now,
 	}
 
 	cmd := &cobra.Command{
@@ -76,7 +71,6 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 		`),
 		Args: cmdutil.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.titleSet = cmd.Flags().Changed("title")
 			if err := cmdutil.MutuallyExclusive("specify only one of --body or --body-file",
 				cmd.Flags().Changed("body"), cmd.Flags().Changed("body-file")); err != nil {
 				return err
@@ -96,7 +90,7 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 	cmd.Flags().StringSliceVarP(&opts.Reviewers, "reviewer", "r", nil, "Request reviews from people (comma-separated)")
 	cmd.Flags().BoolVar(&opts.CloseSourceBranch, "close-source-branch", false, "Close the source branch when the PR merges")
 	cmd.Flags().BoolVarP(&opts.Fill, "fill", "f", false, "Use commit info for the title and body")
-	cmd.Flags().BoolVar(&opts.Push, "push", false, "Push the branch to the remote before creating")
+	cmd.Flags().BoolVar(&opts.Push, "push", false, "Push the branch to its upstream remote (default origin) before creating")
 	cmd.Flags().BoolVarP(&opts.Web, "web", "w", false, "Open the create page in the web browser")
 
 	return cmd
@@ -144,14 +138,16 @@ func createRun(opts *CreateOptions) error {
 			effectiveBase = r.MainBranch.Name
 		}
 	}
+	if opts.Fill && effectiveBase == "" {
+		return fmt.Errorf("cannot use --fill: %s has no main branch configured; specify --base", repo.FullName())
+	}
 
-	if err := ensurePushed(ctx, opts, gitRunner, resolvedRemote, head); err != nil {
+	if err := ensurePushed(ctx, opts, gitRunner, head); err != nil {
 		return err
 	}
 
 	if opts.Web {
-		u := fmt.Sprintf("https://bitbucket.org/%s/pull-requests/new?source=%s",
-			repo.FullName(), url.QueryEscape(head))
+		u := repo.WebURL() + "/pull-requests/new?source=" + url.QueryEscape(head)
 		if effectiveBase != "" {
 			u += "&dest=" + url.QueryEscape(effectiveBase)
 		}
@@ -169,7 +165,14 @@ func createRun(opts *CreateOptions) error {
 	}
 
 	if opts.Fill {
-		t, b, err := fillFromCommits(ctx, gitRunner, effectiveBase, head)
+		// Compare against the remote's copy of the base branch: the local
+		// one may be stale or not exist at all. Without a known remote for
+		// the base repository the local branch is the best available.
+		baseRef := effectiveBase
+		if resolvedRemote != nil && resolvedRemote.Remote.Name != "" {
+			baseRef = resolvedRemote.Remote.Name + "/" + effectiveBase
+		}
+		t, b, err := fillFromCommits(ctx, gitRunner, baseRef, head)
 		if err != nil {
 			return err
 		}
@@ -182,14 +185,15 @@ func createRun(opts *CreateOptions) error {
 	}
 
 	if title == "" {
-		if opts.IO.IsStdinTTY() {
-			title, err = opts.IO.Prompter().Input("Title", "")
-			if err != nil {
-				return err
-			}
+		if !opts.IO.IsStdinTTY() {
+			return cmdutil.FlagErrorf("title is required when not running interactively; use --title or --fill")
 		}
-		if title == "" {
-			return errors.New("--title (or --fill) is required when not running interactively")
+		title, err = opts.IO.Prompter().Input("Title", "")
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(title) == "" {
+			return errors.New("title is required")
 		}
 	}
 
@@ -225,29 +229,45 @@ func createRun(opts *CreateOptions) error {
 
 // ensurePushed makes sure head is available on the remote before the PR is
 // created, prompting or erroring per the auto-push rules.
-func ensurePushed(ctx context.Context, opts *CreateOptions, gitRunner git.Runner, resolvedRemote *git.ResolvedRemote, head string) error {
-	remote := "origin"
-	if resolvedRemote != nil && resolvedRemote.Remote.Name != "" {
-		remote = resolvedRemote.Remote.Name
-	}
-
+//
+// The branch is pushed to its own upstream remote (branch.<head>.remote), or
+// to "origin" when it has none; never to the base repository's remote, which
+// for a fork workflow is the upstream repository the user may not be able to
+// push to.
+func ensurePushed(ctx context.Context, opts *CreateOptions, gitRunner git.Runner, head string) error {
 	upRemote, mergeRef, err := git.BranchUpstream(ctx, gitRunner, head)
 	if err != nil {
 		return err
 	}
+	if upRemote == "." {
+		// Tracking a local branch: nothing on a remote to compare with.
+		upRemote = ""
+	}
+	remote := upRemote
+	if remote == "" {
+		remote = "origin"
+	}
 
-	if upRemote == "" {
+	if opts.Push {
+		return git.Push(ctx, gitRunner, remote, head)
+	}
+
+	upstreamRef := ""
+	if upRemote != "" {
+		upBranch := strings.TrimPrefix(mergeRef, "refs/heads/")
+		if upBranch == "" {
+			upBranch = head
+		}
+		upstreamRef = upRemote + "/" + upBranch
+	} else {
 		exists, err := git.RemoteBranchExists(ctx, gitRunner, remote, head)
 		if err != nil {
 			return err
 		}
-		if exists {
-			return nil
-		}
-		if opts.Push {
-			return git.Push(ctx, gitRunner, remote, head)
-		}
-		if opts.IO.IsStdinTTY() {
+		if !exists {
+			if !opts.IO.IsStdinTTY() {
+				return fmt.Errorf("branch %s has not been pushed to %s; run with --push or push it first", head, remote)
+			}
 			ok, err := opts.IO.Prompter().Confirm(fmt.Sprintf("Push branch %s to %s?", head, remote), true)
 			if err != nil {
 				return err
@@ -257,27 +277,29 @@ func ensurePushed(ctx context.Context, opts *CreateOptions, gitRunner git.Runner
 			}
 			return git.Push(ctx, gitRunner, remote, head)
 		}
-		return fmt.Errorf("branch %s has not been pushed to %s; run with --push or push it first", head, remote)
+		// The branch exists on the remote but is not tracked; still compare
+		// with the remote-tracking ref so unpushed commits are reported.
+		upstreamRef = remote + "/" + head
 	}
 
-	if opts.Push {
-		return git.Push(ctx, gitRunner, remote, head)
-	}
-
-	upBranch := strings.TrimPrefix(mergeRef, "refs/heads/")
-	if upBranch == "" {
-		upBranch = head
-	}
-	upstreamRef := upRemote + "/" + upBranch
+	// The ahead check is advisory: when the remote-tracking ref is missing
+	// (never fetched, or the upstream is a URL rather than a named remote)
+	// it is skipped rather than failing the command.
 	ahead, err := git.AheadCount(ctx, gitRunner, head, upstreamRef)
-	if err != nil {
-		return err
-	}
-	if ahead > 0 {
+	if err == nil && ahead > 0 {
 		cs := opts.IO.ErrColorScheme()
-		fmt.Fprintf(opts.IO.ErrOut, "%s local branch is %d commits ahead of %s\n", cs.WarningIcon(), ahead, upstreamRef)
+		fmt.Fprintf(opts.IO.ErrOut, "%s local branch is %s ahead of %s; run with --push to update it\n",
+			cs.WarningIcon(), pluralize(ahead, "commit"), upstreamRef)
 	}
 	return nil
+}
+
+// pluralize renders "1 commit" / "3 commits".
+func pluralize(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // fillFromCommits derives a title and body from the commits in base..head.

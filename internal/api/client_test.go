@@ -153,6 +153,15 @@ func TestErrorMapping(t *testing.T) {
 	}
 }
 
+func TestIsUnauthorizedExcludesForbidden(t *testing.T) {
+	if api.IsUnauthorized(&api.HTTPError{StatusCode: http.StatusForbidden}) {
+		t.Error("IsUnauthorized(403) = true, want false")
+	}
+	if !api.IsUnauthorized(&api.HTTPError{StatusCode: http.StatusUnauthorized}) {
+		t.Error("IsUnauthorized(401) = false, want true")
+	}
+}
+
 func TestErrorNotFound(t *testing.T) {
 	srv := apitest.New(t)
 	srv.Handle(http.MethodGet, "/repositories/ws/repo", 404,

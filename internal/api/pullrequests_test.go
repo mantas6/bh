@@ -90,9 +90,10 @@ func TestCreatePullRequestOmitsDestination(t *testing.T) {
 
 func TestPullRequestForBranch(t *testing.T) {
 	srv := apitest.New(t)
-	var gotQuery string
+	var gotQuery, gotSort string
 	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/pullrequests", func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.Query().Get("q")
+		gotSort = r.URL.Query().Get("sort")
 		w.Write([]byte(`{"values":[{"id":7,"state":"OPEN"}]}`))
 	})
 	c := srv.Client()
@@ -105,6 +106,54 @@ func TestPullRequestForBranch(t *testing.T) {
 	}
 	if !strings.Contains(gotQuery, `source.branch.name="feature/x"`) || !strings.Contains(gotQuery, `state="OPEN"`) {
 		t.Errorf("q = %q", gotQuery)
+	}
+	if gotSort != "-updated_on" {
+		t.Errorf("sort = %q, want -updated_on", gotSort)
+	}
+}
+
+func TestPullRequestForBranchEscapesQuery(t *testing.T) {
+	srv := apitest.New(t)
+	var gotQuery string
+	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/pullrequests", func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query().Get("q")
+		w.Write([]byte(`{"values":[{"id":7,"state":"OPEN"}]}`))
+	})
+	c := srv.Client()
+	if _, err := c.PullRequestForBranch(context.Background(), "ws/repo", `x" OR state="MERGED`); err != nil {
+		t.Fatal(err)
+	}
+	want := `source.branch.name="x\" OR state=\"MERGED" AND state="OPEN"`
+	if gotQuery != want {
+		t.Errorf("q = %q, want %q", gotQuery, want)
+	}
+}
+
+func TestQuoteBBQL(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"plain", `"plain"`},
+		{"", `""`},
+		{`a"b`, `"a\"b"`},
+		{`a\b`, `"a\\b"`},
+		{`\"`, `"\\\""`},
+	}
+	for _, tt := range tests {
+		if got := api.QuoteBBQL(tt.in); got != tt.want {
+			t.Errorf("QuoteBBQL(%q) = %s, want %s", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestListPullRequestsEmptyIsNonNil(t *testing.T) {
+	srv := apitest.New(t)
+	srv.Handle(http.MethodGet, "/repositories/ws/repo/pullrequests", 200, `{"values":[]}`)
+	c := srv.Client()
+	prs, err := c.ListPullRequests(context.Background(), "ws/repo", api.ListPROptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prs == nil || len(prs) != 0 {
+		t.Errorf("prs = %#v, want non-nil empty slice", prs)
 	}
 }
 

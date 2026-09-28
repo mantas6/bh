@@ -78,6 +78,46 @@ func TestFindByNumber(t *testing.T) {
 	}
 }
 
+func TestFindIDSkipsFetchForNumber(t *testing.T) {
+	for _, arg := range []string{"123", "https://bitbucket.org/other/repo/pull-requests/123"} {
+		t.Run(arg, func(t *testing.T) {
+			// No routes: any request fails the test.
+			srv := apitest.New(t)
+
+			found, err := newFinder(t, srv, gittest.New()).FindID(t.Context(), arg)
+			if err != nil {
+				t.Fatalf("FindID: %v", err)
+			}
+			if found.PR != nil {
+				t.Errorf("PR = %+v, want nil", found.PR)
+			}
+			if found.Number != 123 {
+				t.Errorf("Number = %d, want 123", found.Number)
+			}
+			if found.Client == nil {
+				t.Error("client is nil")
+			}
+			if len(srv.Requests) != 0 {
+				t.Errorf("unexpected requests: %v", srv.Requests)
+			}
+		})
+	}
+}
+
+func TestFindIDLooksUpBranch(t *testing.T) {
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200,
+		map[string]any{"values": []api.PullRequest{*samplePR()}})
+
+	found, err := newFinder(t, srv, nil).FindID(t.Context(), "feature")
+	if err != nil {
+		t.Fatalf("FindID: %v", err)
+	}
+	if found.PR == nil || found.Number != 123 {
+		t.Errorf("found = %+v", found)
+	}
+}
+
 func TestFindByBranch(t *testing.T) {
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200,

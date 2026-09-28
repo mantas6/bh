@@ -99,8 +99,15 @@ func checkoutRun(opts *CheckoutOptions) error {
 		localName = branch
 	}
 
-	if shared.SameRepoPR(pr, found.Repo) {
-		return checkoutSameRepo(ctx, opts, gitRunner, remoteName(found.Remote), branch, localName)
+	if pr.Source.Repository == nil || pr.Source.Repository.FullName == "" {
+		return fmt.Errorf("the source repository of pull request #%d is no longer available (was the fork deleted?)", pr.ID)
+	}
+
+	// found.Remote is the local remote for the PR's repository (re-resolved
+	// for a URL argument naming another repository). Without one the branch
+	// is fetched by URL, the same way as for a fork.
+	if shared.SameRepoPR(pr, found.Repo) && found.Remote != nil {
+		return checkoutSameRepo(ctx, opts, gitRunner, found.Remote.Remote.Name, branch, localName)
 	}
 	return checkoutFork(ctx, opts, gitRunner, found.Remote, pr, branch, localName)
 }
@@ -136,13 +143,18 @@ func checkoutSameRepo(ctx context.Context, opts *CheckoutOptions, g git.Runner, 
 	return git.CheckoutNewBranch(ctx, g, localName, "--track", remoteRef)
 }
 
-// checkoutFork checks out a PR whose source branch lives in a fork.
+// checkoutFork checks out a PR by fetching its source branch from the source
+// repository's clone URL: used for forks, and for same-repository PRs when no
+// local remote points at the repository.
 func checkoutFork(ctx context.Context, opts *CheckoutOptions, g git.Runner, rr *git.ResolvedRemote, pr *api.PullRequest, branch, localName string) error {
 	baseURL := ""
 	if rr != nil {
 		baseURL = rr.Remote.FetchURL
 	}
-	cloneURL := forkCloneURL(pr.Source.Repository, baseURL)
+	cloneURL, err := forkCloneURL(pr.Source.Repository, baseURL)
+	if err != nil {
+		return err
+	}
 	forkWS := forkWorkspace(pr.Source.Repository)
 	forkRef := fmt.Sprintf("refs/remotes/%s/%s", forkWS, branch)
 
@@ -192,28 +204,24 @@ func forkWorkspace(repo *api.Repository) string {
 }
 
 // forkCloneURL selects the fork's clone URL matching the base remote's
-// protocol (ssh vs https), synthesizing a Bitbucket Cloud URL when the API did
-// not return clone links.
-func forkCloneURL(repo *api.Repository, baseRemoteURL string) string {
+// protocol (SSH, in any of git's spellings, vs HTTPS), synthesizing a
+// Bitbucket Cloud URL when the API did not return clone links.
+func forkCloneURL(repo *api.Repository, baseRemoteURL string) (string, error) {
+	ssh := git.IsSSHURL(baseRemoteURL)
 	protocol := "https"
-	if strings.HasPrefix(baseRemoteURL, "git@") || strings.HasPrefix(baseRemoteURL, "ssh://") {
+	if ssh {
 		protocol = "ssh"
 	}
 
-	if repo != nil {
-		for _, cl := range repo.Links.Clone {
-			if strings.EqualFold(cl.Name, protocol) && cl.Href != "" {
-				return cl.Href
-			}
+	for _, cl := range repo.Links.Clone {
+		if strings.EqualFold(cl.Name, protocol) && cl.Href != "" {
+			return cl.Href, nil
 		}
 	}
 
-	full := ""
-	if repo != nil {
-		full = repo.FullName
+	r, err := git.ParseRepoArg(repo.FullName)
+	if err != nil {
+		return "", fmt.Errorf("cannot determine the clone URL of %q: %w", repo.FullName, err)
 	}
-	if protocol == "ssh" {
-		return fmt.Sprintf("git@bitbucket.org:%s.git", full)
-	}
-	return fmt.Sprintf("https://bitbucket.org/%s.git", full)
+	return r.CloneURL(ssh), nil
 }

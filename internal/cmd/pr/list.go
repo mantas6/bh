@@ -18,7 +18,6 @@ import (
 type ListOptions struct {
 	IO        *cmdutil.IOStreams
 	APIClient func() (*api.Client, error)
-	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
 	Browser   cmdutil.Browser
 	Now       func() time.Time
@@ -36,7 +35,6 @@ func NewCmdList(f *cmdutil.Factory, runF func(*ListOptions) error) *cobra.Comman
 	opts := &ListOptions{
 		IO:        f.IOStreams,
 		APIClient: f.APIClient,
-		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
 		Browser:   f.Browser,
 		Now:       time.Now,
@@ -48,6 +46,9 @@ func NewCmdList(f *cmdutil.Factory, runF func(*ListOptions) error) *cobra.Comman
 		Aliases: []string{"ls"},
 		Args:    cmdutil.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if opts.Limit <= 0 {
+				return cmdutil.FlagErrorf("invalid value for --limit: %d", opts.Limit)
+			}
 			if runF != nil {
 				return runF(opts)
 			}
@@ -74,8 +75,7 @@ func listRun(opts *ListOptions) error {
 	}
 
 	if opts.Web {
-		u := fmt.Sprintf("https://bitbucket.org/%s/pull-requests/", repo.FullName())
-		return cmdutil.OpenInBrowser(opts.IO, opts.Browser, u)
+		return cmdutil.OpenInBrowser(opts.IO, opts.Browser, repo.WebURL()+"/pull-requests/")
 	}
 
 	states, err := mapStates(opts.State)
@@ -97,7 +97,13 @@ func listRun(opts *ListOptions) error {
 		qparts = append(qparts, aq)
 	}
 	if opts.Search != "" {
-		qparts = append(qparts, opts.Search)
+		// The search is raw BBQL; parenthesise it so an OR inside it cannot
+		// escape the other filters.
+		if len(qparts) > 0 {
+			qparts = append(qparts, "("+opts.Search+")")
+		} else {
+			qparts = append(qparts, opts.Search)
+		}
 	}
 
 	prs, err := client.ListPullRequests(ctx, repo.FullName(), api.ListPROptions{
@@ -176,9 +182,9 @@ func authorQuery(ctx context.Context, client *api.Client, author string) (string
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf(`author.uuid="%s"`, u.UUID), nil
+		return "author.uuid=" + api.QuoteBBQL(u.UUID), nil
 	}
-	return fmt.Sprintf(`author.nickname="%s"`, author), nil
+	return "author.nickname=" + api.QuoteBBQL(author), nil
 }
 
 // listHeader renders the "Showing N [state] pull requests" header line.

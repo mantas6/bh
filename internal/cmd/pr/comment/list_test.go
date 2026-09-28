@@ -2,6 +2,7 @@ package comment
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -150,6 +151,100 @@ func TestListJSON(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != 2 {
 		t.Fatalf("expected only open comment #2, got %+v", got)
+	}
+}
+
+// threadedComments returns two threads: #1 (with replies #2, #3) and #4.
+func threadedComments() []api.Comment {
+	root1 := commentAt(1, "ada", "first thread", 60)
+	reply1 := commentAt(2, "bob", "reply one", 50)
+	reply1.Parent = &api.CommentRef{ID: 1}
+	reply2 := commentAt(3, "cara", "reply two", 40)
+	reply2.Parent = &api.CommentRef{ID: 1}
+	root2 := commentAt(4, "dan", "second thread", 30)
+	return []api.Comment{root1, reply1, reply2, root2}
+}
+
+func TestListLimitCountsThreads(t *testing.T) {
+	srv := apitest.New(t)
+	listComments(srv, threadedComments())
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newListOpts(srv, ios)
+	opts.Limit = 1
+	if err := listRun(opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{"first thread", "reply one", "reply two"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q from the first thread:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "second thread") {
+		t.Errorf("second thread should be cut by --limit 1:\n%s", got)
+	}
+
+	// All comments are fetched; the limit is not passed to the API.
+	req := findRequest(srv, "GET", "/pullrequests/123/comments")
+	if pl := req.Query.Get("pagelen"); pl != "50" {
+		t.Errorf("pagelen = %q, want 50 (unlimited fetch)", pl)
+	}
+}
+
+func TestListLimitJSONCountsThreads(t *testing.T) {
+	srv := apitest.New(t)
+	listComments(srv, threadedComments())
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newListOpts(srv, ios)
+	opts.Limit = 1
+	opts.JSON = true
+	if err := listRun(opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	var got []api.Comment
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	var ids []int
+	for _, c := range got {
+		ids = append(ids, c.ID)
+	}
+	if len(ids) != 3 || ids[0] != 1 || ids[1] != 2 || ids[2] != 3 {
+		t.Errorf("ids = %v, want [1 2 3]", ids)
+	}
+}
+
+func TestListNilNow(t *testing.T) {
+	srv := apitest.New(t)
+	listComments(srv, []api.Comment{commentAt(1, "ada", "hi", 5)})
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newListOpts(srv, ios)
+	opts.Now = nil
+	if err := listRun(opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	if !strings.Contains(out.String(), "#1 ada") {
+		t.Errorf("output = %q", out.String())
+	}
+}
+
+func TestListNegativeLimitFlagError(t *testing.T) {
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	f := &cmdutil.Factory{IOStreams: ios}
+	cmd := NewCmdList(f, func(*ListOptions) error {
+		t.Error("runF should not be called")
+		return nil
+	})
+	cmd.SetArgs([]string{"123", "-L", "-1"})
+	cmd.SetOut(ios.Out)
+	cmd.SetErr(ios.ErrOut)
+	err := cmd.Execute()
+	var fe *cmdutil.FlagError
+	if !errors.As(err, &fe) {
+		t.Fatalf("err = %v, want FlagError", err)
 	}
 }
 

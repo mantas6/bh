@@ -45,7 +45,7 @@ func tokenRun(opts *TokenOptions) error {
 	host := config.DefaultHost
 	token, _ := cfg.Token(host)
 	if token == "" {
-		return fmt.Errorf("no token found for %s", host)
+		return cmdutil.NotLoggedInError(host)
 	}
 
 	fmt.Fprintln(opts.IO.Out, token)

@@ -1,6 +1,7 @@
 package comment
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -18,7 +19,6 @@ func TestReplyBodyHasParent(t *testing.T) {
 		APIClient: clientFunc(srv),
 		Git:       gitFunc(newGitStub()),
 		BaseRepo:  baseRepoFunc(),
-		Now:       nowFunc(),
 		Arg:       "123",
 		CommentID: 5,
 		Body:      "a reply",
@@ -51,8 +51,9 @@ func TestReplyMissingBody(t *testing.T) {
 		CommentID: 5,
 	}
 	err := replyRun(opts)
-	if err == nil || !strings.Contains(err.Error(), "comment body is required") {
-		t.Fatalf("err = %v", err)
+	var fe *cmdutil.FlagError
+	if !errors.As(err, &fe) || !strings.Contains(err.Error(), "comment body is required") {
+		t.Fatalf("err = %v, want body FlagError", err)
 	}
 }
 

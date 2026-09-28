@@ -123,15 +123,24 @@ func (c *Config) RemoveHost(name string) {
 	delete(c.Hosts, name)
 }
 
+// Token sources reported by Config.Token.
+const (
+	// TokenSourceEnv means the token came from the BH_TOKEN environment
+	// variable.
+	TokenSourceEnv = "BH_TOKEN"
+	// TokenSourceFile means the token came from the hosts file.
+	TokenSourceFile = hostsFile
+)
+
 // Token resolves the token for a host. The BH_TOKEN environment variable
-// overrides any stored token. The returned source is "BH_TOKEN", "hosts.yml",
-// or "" when no token is available.
+// overrides any stored token. The returned source is TokenSourceEnv,
+// TokenSourceFile, or "" when no token is available.
 func (c *Config) Token(host string) (token string, source string) {
 	if env := os.Getenv("BH_TOKEN"); env != "" {
-		return env, "BH_TOKEN"
+		return env, TokenSourceEnv
 	}
 	if hc := c.Host(host); hc != nil && hc.Token != "" {
-		return hc.Token, "hosts.yml"
+		return hc.Token, TokenSourceFile
 	}
 	return "", ""
 }

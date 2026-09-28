@@ -3,6 +3,7 @@ package pr
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmd/pr/shared"
@@ -81,8 +82,8 @@ func reviewRun(opts *ReviewOptions) error {
 		body = b
 	}
 
-	if opts.Comment && body == "" {
-		return cmdutil.FlagErrorf("a body is required when commenting; use --body or --body-file")
+	if opts.Comment && strings.TrimSpace(body) == "" {
+		return cmdutil.FlagErrorf("a comment body is required with --comment; use --body or --body-file")
 	}
 
 	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)

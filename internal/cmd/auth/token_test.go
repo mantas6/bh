@@ -40,7 +40,7 @@ func TestTokenNoToken(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "no token found for bitbucket.org") {
+	if !strings.Contains(err.Error(), "not logged in to bitbucket.org; run `bh auth login` or set BH_TOKEN") {
 		t.Errorf("error = %q", err.Error())
 	}
 }

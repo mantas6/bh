@@ -67,31 +67,45 @@ func declineRun(opts *DeclineOptions) error {
 			pr.ID, strings.ToLower(pr.State))
 	}
 
-	// Deleting the branch needs a local remote for the PR's repo; check before
+	cs := opts.IO.ErrColorScheme()
+	branch := pr.Source.Branch.Name
+
+	// Deleting the branch pushes a deletion to the local git remote for the
+	// PR's repo, so one must be known; there is deliberately no fallback to
+	// "origin", which could point at an unrelated repository. Check before
 	// declining so the command doesn't half-succeed.
 	deleteBranch := opts.DeleteBranch && shared.SameRepoPR(pr, repo)
 	if deleteBranch && found.Remote == nil {
-		return fmt.Errorf("cannot delete branch %s: no git remote found for %s", pr.Source.Branch.Name, repo.FullName())
+		return fmt.Errorf("cannot delete branch %s: no git remote found for %s", branch, repo.FullName())
 	}
 
 	if _, err := client.DeclinePullRequest(ctx, repo.FullName(), pr.ID); err != nil {
 		return err
 	}
 
-	fmt.Fprintf(opts.IO.ErrOut, "%s Declined pull request #%d (%s)\n", opts.IO.ErrColorScheme().SuccessIcon(), pr.ID, pr.Title)
+	fmt.Fprintf(opts.IO.ErrOut, "%s Declined pull request #%d (%s)\n", cs.SuccessIcon(), pr.ID, pr.Title)
 
-	if deleteBranch {
-		gitRunner, err := opts.Git()
-		if err != nil {
-			return err
-		}
-		if err := deleteLocalSourceBranch(ctx, gitRunner, opts.IO, pr.Source.Branch.Name, pr.Destination.Branch.Name); err != nil {
-			return err
-		}
-		if err := git.PushDelete(ctx, gitRunner, remoteName(found.Remote), pr.Source.Branch.Name); err != nil {
-			return err
-		}
+	if opts.DeleteBranch && !deleteBranch {
+		fmt.Fprintf(opts.IO.ErrOut, "%s Skipped deleting branch %s: it is not in %s\n", cs.WarningIcon(), branch, repo.FullName())
+		return nil
+	}
+	if !deleteBranch {
+		return nil
 	}
 
+	gitRunner, err := opts.Git()
+	if err != nil {
+		return err
+	}
+	// Delete the local branch first: `git branch -d` accepts a branch that is
+	// fully pushed to its upstream, which only holds while the remote branch
+	// still exists.
+	if err := deleteLocalSourceBranch(ctx, gitRunner, opts.IO, branch, pr.Destination.Branch.Name, false); err != nil {
+		return err
+	}
+	if err := git.PushDelete(ctx, gitRunner, found.Remote.Remote.Name, branch); err != nil {
+		return err
+	}
+	fmt.Fprintf(opts.IO.ErrOut, "%s Deleted branch %s from %s\n", cs.SuccessIcon(), branch, found.Remote.Remote.Name)
 	return nil
 }

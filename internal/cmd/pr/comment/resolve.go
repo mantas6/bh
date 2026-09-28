@@ -3,7 +3,6 @@ package comment
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmd/pr/shared"
@@ -19,29 +18,32 @@ type ResolveOptions struct {
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
-	Now       func() time.Time
 
 	Arg       string
 	CommentID int
+	// Reopen reopens (unresolves) the thread instead of resolving it.
+	Reopen bool
 }
 
-func newResolveOptions(f *cmdutil.Factory) *ResolveOptions {
-	return &ResolveOptions{
+// newCmdResolveOrReopen builds the resolve and reopen commands, which differ
+// only in their name, help text and the Reopen option.
+func newCmdResolveOrReopen(f *cmdutil.Factory, runF func(*ResolveOptions) error, reopen bool) *cobra.Command {
+	opts := &ResolveOptions{
 		IO:        f.IOStreams,
 		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
-		Now:       time.Now,
+		Reopen:    reopen,
 	}
-}
 
-// NewCmdResolve creates the "pr comment resolve" command.
-func NewCmdResolve(f *cmdutil.Factory, runF func(*ResolveOptions) error) *cobra.Command {
-	opts := newResolveOptions(f)
+	use, short := "resolve", "Resolve a pull request comment thread"
+	if reopen {
+		use, short = "reopen", "Reopen (unresolve) a pull request comment thread"
+	}
 
-	cmd := &cobra.Command{
-		Use:   "resolve {<number> | <url> | <branch>} <comment-id>",
-		Short: "Resolve a pull request comment thread",
+	return &cobra.Command{
+		Use:   use + " {<number> | <url> | <branch>} <comment-id>",
+		Short: short,
 		Args:  cmdutil.ExactArgs(2, "a pull request and a comment id are required"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Arg = args[0]
@@ -53,33 +55,37 @@ func NewCmdResolve(f *cmdutil.Factory, runF func(*ResolveOptions) error) *cobra.
 			if runF != nil {
 				return runF(opts)
 			}
-			return resolveRun(opts, false)
+			return resolveRun(opts)
 		},
 	}
-
-	return cmd
 }
 
-func resolveRun(opts *ResolveOptions, reopen bool) error {
+// NewCmdResolve creates the "pr comment resolve" command.
+func NewCmdResolve(f *cmdutil.Factory, runF func(*ResolveOptions) error) *cobra.Command {
+	return newCmdResolveOrReopen(f, runF, false)
+}
+
+func resolveRun(opts *ResolveOptions) error {
 	ctx := context.Background()
 
-	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
+	// Only the PR id is needed, so a numeric argument skips the PR fetch.
+	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).FindID(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
-	pr, repo, client := found.PR, found.Repo, found.Client
+	repo, client := found.Repo.FullName(), found.Client
 
-	if reopen {
-		if err := client.ReopenComment(ctx, repo.FullName(), pr.ID, opts.CommentID); err != nil {
-			return err
-		}
-		fmt.Fprintf(opts.IO.Out, "%s Reopened comment #%d\n", opts.IO.ColorScheme().SuccessIcon(), opts.CommentID)
-		return nil
+	verb := "Resolved"
+	if opts.Reopen {
+		verb = "Reopened"
+		err = client.ReopenComment(ctx, repo, found.Number, opts.CommentID)
+	} else {
+		err = client.ResolveComment(ctx, repo, found.Number, opts.CommentID)
 	}
-
-	if err := client.ResolveComment(ctx, repo.FullName(), pr.ID, opts.CommentID); err != nil {
+	if err != nil {
 		return err
 	}
-	fmt.Fprintf(opts.IO.Out, "%s Resolved comment #%d\n", opts.IO.ColorScheme().SuccessIcon(), opts.CommentID)
+
+	fmt.Fprintf(opts.IO.ErrOut, "%s %s comment #%d\n", opts.IO.ErrColorScheme().SuccessIcon(), verb, opts.CommentID)
 	return nil
 }

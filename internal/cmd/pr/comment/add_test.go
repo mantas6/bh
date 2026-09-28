@@ -30,7 +30,6 @@ func newAddOpts(srv *apitest.Server, ios *cmdutil.IOStreams) *AddOptions {
 		APIClient: clientFunc(srv),
 		Git:       gitFunc(newGitStub()),
 		BaseRepo:  baseRepoFunc(),
-		Now:       nowFunc(),
 		Arg:       "123",
 		Side:      "new",
 	}
@@ -151,8 +150,30 @@ func TestAddMissingBody(t *testing.T) {
 		Side:     "new",
 	}
 	err := addRun(opts)
-	if err == nil || !strings.Contains(err.Error(), "comment body is required") {
-		t.Fatalf("err = %v", err)
+	var fe *cmdutil.FlagError
+	if !errors.As(err, &fe) || !strings.Contains(err.Error(), "comment body is required") {
+		t.Fatalf("err = %v, want body FlagError", err)
+	}
+}
+
+func TestAddInvalidLineFlagError(t *testing.T) {
+	for _, line := range []string{"0", "-3"} {
+		t.Run(line, func(t *testing.T) {
+			ios, _, _, _ := cmdutil.TestIOStreams()
+			f := &cmdutil.Factory{IOStreams: ios}
+			cmd := NewCmdAdd(f, func(*AddOptions) error {
+				t.Error("runF should not be called")
+				return nil
+			})
+			cmd.SetArgs([]string{"123", "-b", "x", "--path", "main.go", "--line", line})
+			cmd.SetOut(ios.Out)
+			cmd.SetErr(ios.ErrOut)
+			err := cmd.Execute()
+			var fe *cmdutil.FlagError
+			if !errors.As(err, &fe) || !strings.Contains(err.Error(), "invalid value for --line") {
+				t.Fatalf("err = %v", err)
+			}
+		})
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmd/pr/shared"
@@ -19,7 +18,6 @@ type EditOptions struct {
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
-	Now       func() time.Time
 
 	Arg             string
 	Title           string
@@ -42,7 +40,6 @@ func NewCmdEdit(f *cmdutil.Factory, runF func(*EditOptions) error) *cobra.Comman
 		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
-		Now:       time.Now,
 	}
 
 	cmd := &cobra.Command{

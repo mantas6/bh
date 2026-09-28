@@ -6,8 +6,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mantas6/bh/internal/api"
 	"github.com/spf13/cobra"
 )
+
+func TestNotLoggedInError(t *testing.T) {
+	err := NotLoggedInError("bitbucket.org")
+	if got, want := err.Error(), "not logged in to bitbucket.org; run `bh auth login` or set BH_TOKEN"; got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+	if !errors.Is(err, api.ErrNoToken) {
+		t.Error("errors.Is(err, api.ErrNoToken) = false")
+	}
+	if err.Error() != api.ErrNoToken.Error() {
+		t.Errorf("hint differs from api.ErrNoToken: %q vs %q", err.Error(), api.ErrNoToken.Error())
+	}
+}
 
 func assertFlagError(t *testing.T, err error, wantSubstr string) {
 	t.Helper()

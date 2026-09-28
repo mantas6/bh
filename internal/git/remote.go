@@ -27,6 +27,57 @@ func (r Repo) String() string {
 	return r.Host + "/" + r.FullName()
 }
 
+// host returns the repository host, defaulting to Bitbucket Cloud.
+func (r Repo) host() string {
+	if r.Host != "" {
+		return r.Host
+	}
+	return api.DefaultHost
+}
+
+// WebURL returns the repository's web page, e.g.
+// "https://bitbucket.org/ws/repo", without a trailing slash.
+func (r Repo) WebURL() string {
+	return "https://" + r.host() + "/" + r.FullName()
+}
+
+// CloneURL returns the repository's clone URL: an scp-style
+// "git@host:ws/repo.git" when ssh is true, otherwise
+// "https://host/ws/repo.git".
+func (r Repo) CloneURL(ssh bool) string {
+	if ssh {
+		return "git@" + r.host() + ":" + r.FullName() + ".git"
+	}
+	return r.WebURL() + ".git"
+}
+
+// sshSchemes are the URL schemes git treats as the SSH transport.
+var sshSchemes = map[string]bool{"ssh": true, "git+ssh": true, "ssh+git": true}
+
+// IsSSHURL reports whether a git remote URL uses the SSH transport: an
+// ssh://, git+ssh:// or ssh+git:// URL, or scp-like "[user@]host:path"
+// syntax.
+func IsSSHURL(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if i := strings.Index(raw, "://"); i >= 0 {
+		return sshSchemes[strings.ToLower(raw[:i])]
+	}
+	return isSCPLike(raw)
+}
+
+// isSCPLike reports whether raw uses git's scp-like "[user@]host:path"
+// syntax: a colon before any slash, and not a Windows drive letter.
+func isSCPLike(raw string) bool {
+	colon := strings.Index(raw, ":")
+	if colon <= 0 {
+		return false
+	}
+	if slash := strings.Index(raw, "/"); slash >= 0 && slash < colon {
+		return false
+	}
+	return colon > 1 // "C:\..." is a local path
+}
+
 // normalizeHost maps alternate Bitbucket hostnames to the canonical host and
 // reports whether the host belongs to Bitbucket Cloud.
 func normalizeHost(host string) (string, bool) {
@@ -97,8 +148,8 @@ func ParseRemoteURL(raw string) (Repo, bool) {
 	if err != nil {
 		return Repo{}, false
 	}
-	switch u.Scheme {
-	case "http", "https", "ssh", "git":
+	switch scheme := strings.ToLower(u.Scheme); {
+	case scheme == "http", scheme == "https", scheme == "git", sshSchemes[scheme]:
 	default:
 		return Repo{}, false
 	}

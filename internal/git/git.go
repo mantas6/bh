@@ -358,9 +358,15 @@ func MergeFFOnly(ctx context.Context, r Runner, ref string) error {
 	return r.RunInteractive(ctx, "merge", "--ff-only", ref)
 }
 
-// DeleteLocalBranch runs an interactive `git branch -D <name>`.
-func DeleteLocalBranch(ctx context.Context, r Runner, name string) error {
-	return r.RunInteractive(ctx, "branch", "-D", "--end-of-options", name)
+// DeleteLocalBranch runs an interactive `git branch -d <name>`, which refuses
+// to delete a branch that is not fully merged. With force it runs
+// `git branch -D <name>` instead, deleting the branch regardless.
+func DeleteLocalBranch(ctx context.Context, r Runner, name string, force bool) error {
+	flag := "-d"
+	if force {
+		flag = "-D"
+	}
+	return r.RunInteractive(ctx, "branch", flag, "--end-of-options", name)
 }
 
 // PushDelete runs an interactive `git push <remote> --delete <branch>`.

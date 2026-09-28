@@ -5,27 +5,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewCmdReopen creates the "pr comment reopen" command.
+// NewCmdReopen creates the "pr comment reopen" command. It shares
+// ResolveOptions and resolveRun with "pr comment resolve", with
+// ResolveOptions.Reopen set.
 func NewCmdReopen(f *cmdutil.Factory, runF func(*ResolveOptions) error) *cobra.Command {
-	opts := newResolveOptions(f)
-
-	cmd := &cobra.Command{
-		Use:   "reopen {<number> | <url> | <branch>} <comment-id>",
-		Short: "Reopen (unresolve) a pull request comment thread",
-		Args:  cmdutil.ExactArgs(2, "a pull request and a comment id are required"),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.Arg = args[0]
-			id, err := parseCommentID(args[1])
-			if err != nil {
-				return cmdutil.FlagErrorWrap(err)
-			}
-			opts.CommentID = id
-			if runF != nil {
-				return runF(opts)
-			}
-			return resolveRun(opts, true)
-		},
-	}
-
-	return cmd
+	return newCmdResolveOrReopen(f, runF, true)
 }

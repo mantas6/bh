@@ -3,6 +3,8 @@ package cmdutil
 import (
 	"errors"
 	"fmt"
+
+	"github.com/mantas6/bh/internal/api"
 )
 
 // ErrSilent is returned when an error has already been printed and the top
@@ -34,6 +36,23 @@ func (e *FlagError) Error() string {
 
 func (e *FlagError) Unwrap() error {
 	return e.err
+}
+
+// NotLoggedInError returns the error reported by every command that needs
+// credentials for host when none are configured. It matches api.ErrNoToken
+// with errors.Is.
+func NotLoggedInError(host string) error {
+	return &notLoggedInError{host: host}
+}
+
+type notLoggedInError struct{ host string }
+
+func (e *notLoggedInError) Error() string {
+	return fmt.Sprintf("not logged in to %s; run `bh auth login` or set BH_TOKEN", e.host)
+}
+
+func (e *notLoggedInError) Is(target error) bool {
+	return target == api.ErrNoToken
 }
 
 // IsUserCancellation reports whether err represents a user cancellation.

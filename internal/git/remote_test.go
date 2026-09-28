@@ -27,6 +27,8 @@ func TestParseRemoteURL(t *testing.T) {
 		{"ssh", "ssh://git@bitbucket.org/ws/repo.git", true, want},
 		{"ssh altssh port", "ssh://git@altssh.bitbucket.org:443/ws/repo.git", true, want},
 		{"altssh https normalizes", "https://altssh.bitbucket.org/ws/repo.git", true, want},
+		{"git+ssh", "git+ssh://git@bitbucket.org/ws/repo.git", true, want},
+		{"ssh+git", "ssh+git://git@bitbucket.org/ws/repo.git", true, want},
 
 		{"github", "https://github.com/ws/repo.git", false, git.Repo{}},
 		{"github scp", "git@github.com:ws/repo.git", false, git.Repo{}},
@@ -50,6 +52,48 @@ func TestParseRemoteURL(t *testing.T) {
 				t.Fatalf("ParseRemoteURL(%q) = %+v, want %+v", tt.raw, repo, tt.repo)
 			}
 		})
+	}
+}
+
+func TestIsSSHURL(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want bool
+	}{
+		{"git@bitbucket.org:ws/repo.git", true},
+		{"bitbucket.org:ws/repo.git", true},
+		{"ssh://git@bitbucket.org/ws/repo.git", true},
+		{"git+ssh://git@bitbucket.org/ws/repo.git", true},
+		{"ssh+git://git@bitbucket.org/ws/repo.git", true},
+		{"SSH://git@bitbucket.org/ws/repo.git", true},
+		{"https://bitbucket.org/ws/repo.git", false},
+		{"http://bitbucket.org/ws/repo.git", false},
+		{"git://bitbucket.org/ws/repo.git", false},
+		{"/local/path", false},
+		{"./a:b", false},
+		{`C:\repo`, false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := git.IsSSHURL(tt.raw); got != tt.want {
+			t.Errorf("IsSSHURL(%q) = %v, want %v", tt.raw, got, tt.want)
+		}
+	}
+}
+
+func TestRepoURLs(t *testing.T) {
+	r := git.Repo{Host: "bitbucket.org", Workspace: "ws", Name: "repo"}
+	if got := r.WebURL(); got != "https://bitbucket.org/ws/repo" {
+		t.Errorf("WebURL = %q", got)
+	}
+	if got := r.CloneURL(false); got != "https://bitbucket.org/ws/repo.git" {
+		t.Errorf("CloneURL(false) = %q", got)
+	}
+	if got := r.CloneURL(true); got != "git@bitbucket.org:ws/repo.git" {
+		t.Errorf("CloneURL(true) = %q", got)
+	}
+	if got := (git.Repo{Workspace: "ws", Name: "repo"}).WebURL(); got != "https://bitbucket.org/ws/repo" {
+		t.Errorf("WebURL without host = %q", got)
 	}
 }
 

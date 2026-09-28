@@ -15,7 +15,6 @@ func newDeleteOpts(srv *apitest.Server, ios *cmdutil.IOStreams) *DeleteOptions {
 		APIClient: clientFunc(srv),
 		Git:       gitFunc(newGitStub()),
 		BaseRepo:  baseRepoFunc(),
-		Now:       nowFunc(),
 		Arg:       "123",
 		CommentID: 9,
 	}
@@ -38,7 +37,6 @@ func TestDeleteNonTTYWithoutYes(t *testing.T) {
 
 func TestDeleteTTYDecline(t *testing.T) {
 	srv := apitest.New(t)
-	handlePR(srv)
 
 	ios, in, _, errOut := cmdutil.TestIOStreams()
 	ios.SetStdinTTY(true)
@@ -58,7 +56,6 @@ func TestDeleteTTYDecline(t *testing.T) {
 
 func TestDeleteTTYConfirm(t *testing.T) {
 	srv := apitest.New(t)
-	handlePR(srv)
 	srv.Handle("DELETE", "/repositories/myws/myrepo/pullrequests/123/comments/9", 204, nil)
 
 	ios, in, _, errOut := cmdutil.TestIOStreams()
@@ -77,8 +74,8 @@ func TestDeleteTTYConfirm(t *testing.T) {
 }
 
 func TestDeleteYesSkipsPrompt(t *testing.T) {
+	// No PR route: a numeric argument must not fetch the pull request.
 	srv := apitest.New(t)
-	handlePR(srv)
 	srv.Handle("DELETE", "/repositories/myws/myrepo/pullrequests/123/comments/9", 204, nil)
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
@@ -89,6 +86,9 @@ func TestDeleteYesSkipsPrompt(t *testing.T) {
 	}
 	if findRequest(srv, "DELETE", "/comments/9") == nil {
 		t.Error("expected DELETE request")
+	}
+	if len(srv.Requests) != 1 {
+		t.Errorf("requests = %v, want only the DELETE", srv.Requests)
 	}
 }
 

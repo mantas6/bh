@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmd/pr/shared"
@@ -19,7 +18,6 @@ type DeleteOptions struct {
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
-	Now       func() time.Time
 
 	Arg       string
 	CommentID int
@@ -33,7 +31,6 @@ func NewCmdDelete(f *cmdutil.Factory, runF func(*DeleteOptions) error) *cobra.Co
 		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
-		Now:       time.Now,
 	}
 
 	cmd := &cobra.Command{
@@ -75,13 +72,13 @@ func deleteRun(opts *DeleteOptions) error {
 		}
 	}
 
-	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)
+	// Only the PR id is needed, so a numeric argument skips the PR fetch.
+	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).FindID(ctx, opts.Arg)
 	if err != nil {
 		return err
 	}
-	pr, repo, client := found.PR, found.Repo, found.Client
 
-	if err := client.DeleteComment(ctx, repo.FullName(), pr.ID, opts.CommentID); err != nil {
+	if err := found.Client.DeleteComment(ctx, found.Repo.FullName(), found.Number, opts.CommentID); err != nil {
 		return err
 	}
 

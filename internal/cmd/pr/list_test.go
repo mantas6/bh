@@ -2,6 +2,7 @@ package pr
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -131,8 +132,81 @@ func TestListStateAllAuthorMe(t *testing.T) {
 	if !strings.Contains(q, `author.uuid="{me-uuid}"`) {
 		t.Errorf("q missing author: %q", q)
 	}
-	if !strings.Contains(q, " AND fix") {
-		t.Errorf("q missing search combine: %q", q)
+	if !strings.HasSuffix(q, " AND (fix)") {
+		t.Errorf("q missing parenthesised search: %q", q)
+	}
+}
+
+func TestListSearchAloneNotParenthesised(t *testing.T) {
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, valuesPage([]api.PullRequest{}))
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := newListOptions(srv)
+	opts.IO = ios
+	opts.Search = `title ~ "x"`
+
+	if err := listRun(opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	if q := findRequest(srv, "GET", "/pullrequests").Query.Get("q"); q != `title ~ "x"` {
+		t.Errorf("q = %q", q)
+	}
+}
+
+func TestListAuthorEscaped(t *testing.T) {
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, valuesPage([]api.PullRequest{}))
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := newListOptions(srv)
+	opts.IO = ios
+	opts.Author = `ada" OR author.nickname="bob`
+
+	if err := listRun(opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	want := `author.nickname="ada\" OR author.nickname=\"bob"`
+	if q := findRequest(srv, "GET", "/pullrequests").Query.Get("q"); q != want {
+		t.Errorf("q = %q, want %q", q, want)
+	}
+}
+
+func TestListJSONEmptyIsArray(t *testing.T) {
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, valuesPage([]api.PullRequest{}))
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newListOptions(srv)
+	opts.IO = ios
+	opts.JSON = true
+
+	if err := listRun(opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "[]" {
+		t.Errorf("output = %q, want []", got)
+	}
+}
+
+func TestListInvalidLimit(t *testing.T) {
+	for _, limit := range []string{"0", "-1"} {
+		t.Run(limit, func(t *testing.T) {
+			ios, _, _, _ := cmdutil.TestIOStreams()
+			f := &cmdutil.Factory{IOStreams: ios}
+			cmd := NewCmdList(f, func(o *ListOptions) error {
+				t.Error("runF should not be called")
+				return nil
+			})
+			cmd.SetArgs([]string{"-L", limit})
+			cmd.SetOut(ios.Out)
+			cmd.SetErr(ios.ErrOut)
+			err := cmd.Execute()
+			var fe *cmdutil.FlagError
+			if !errors.As(err, &fe) || !strings.Contains(err.Error(), "invalid value for --limit") {
+				t.Fatalf("err = %v, want --limit FlagError", err)
+			}
+		})
 	}
 }
 

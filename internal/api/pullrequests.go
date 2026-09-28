@@ -18,8 +18,11 @@ type ListPROptions struct {
 	// State filters by PR state, e.g. []string{"OPEN","MERGED"}. Each value
 	// becomes a repeated `state` query parameter.
 	State []string
-	// Query is an optional raw BBQL `q` filter.
+	// Query is an optional raw BBQL `q` filter. Interpolate user input with
+	// QuoteBBQL.
 	Query string
+	// Sort is an optional sort field, e.g. "-updated_on" for newest first.
+	Sort string
 	// Limit caps the number of results; <=0 means unlimited.
 	Limit int
 }
@@ -35,6 +38,9 @@ func (c *Client) ListPullRequests(ctx context.Context, repo string, opts ListPRO
 	if opts.Query != "" {
 		q.Set("q", opts.Query)
 	}
+	if opts.Sort != "" {
+		q.Set("sort", opts.Sort)
+	}
 	path := fmt.Sprintf("/repositories/%s/pullrequests", repo)
 	return PaginateAll[PullRequest](ctx, c, path, q, opts.Limit)
 }
@@ -49,10 +55,11 @@ func (c *Client) PullRequest(ctx context.Context, repo string, id int) (*PullReq
 }
 
 // PullRequestForBranch returns the open pull request whose source branch is
-// branch. If multiple match, the first is returned; if none, an error.
+// branch. If several match, the most recently updated one is returned; if
+// none, an error.
 func (c *Client) PullRequestForBranch(ctx context.Context, repo, branch string) (*PullRequest, error) {
-	q := fmt.Sprintf(`source.branch.name="%s" AND state="OPEN"`, branch)
-	prs, err := c.ListPullRequests(ctx, repo, ListPROptions{Query: q, Limit: 1})
+	q := fmt.Sprintf(`source.branch.name=%s AND state="OPEN"`, QuoteBBQL(branch))
+	prs, err := c.ListPullRequests(ctx, repo, ListPROptions{Query: q, Sort: "-updated_on", Limit: 1})
 	if err != nil {
 		return nil, err
 	}

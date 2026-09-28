@@ -2,9 +2,7 @@ package comment
 
 import (
 	"context"
-	"errors"
 	"strings"
-	"time"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmd/pr/shared"
@@ -19,7 +17,6 @@ type ReplyOptions struct {
 	APIClient func() (*api.Client, error)
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
-	Now       func() time.Time
 
 	Arg       string
 	CommentID int
@@ -34,7 +31,6 @@ func NewCmdReply(f *cmdutil.Factory, runF func(*ReplyOptions) error) *cobra.Comm
 		APIClient: f.APIClient,
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
-		Now:       time.Now,
 	}
 
 	cmd := &cobra.Command{
@@ -72,7 +68,7 @@ func replyRun(opts *ReplyOptions) error {
 		return err
 	}
 	if strings.TrimSpace(body) == "" {
-		return errors.New("comment body is required (use -b, -F, or pipe via stdin)")
+		return errBodyRequired
 	}
 
 	found, err := shared.NewFinder(opts.BaseRepo, opts.APIClient, opts.Git).Find(ctx, opts.Arg)

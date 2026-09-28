@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/mantas6/bh/internal/api"
@@ -150,7 +149,7 @@ func loginRun(opts *LoginOptions) error {
 	}
 
 	cs := opts.IO.ErrColorScheme()
-	if os.Getenv("BH_TOKEN") != "" {
+	if _, source := cfg.Token(config.DefaultHost); source == config.TokenSourceEnv {
 		fmt.Fprintf(opts.IO.ErrOut, "%s The BH_TOKEN environment variable is set and will take precedence over the stored token.\n", cs.WarningIcon())
 	}
 

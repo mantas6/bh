@@ -66,7 +66,7 @@ func New(version string) *cmdutil.Factory {
 		host := config.DefaultHost
 		token, _ := cfg.Token(host)
 		if token == "" {
-			return nil, api.ErrNoToken
+			return nil, cmdutil.NotLoggedInError(host)
 		}
 		return f.APIClientFor(token, cfg.Email(host)), nil
 	}

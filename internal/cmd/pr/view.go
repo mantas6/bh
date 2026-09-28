@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmd/pr/shared"
@@ -21,7 +20,6 @@ type ViewOptions struct {
 	Git       func() (git.Runner, error)
 	BaseRepo  func() (git.Repo, *git.ResolvedRemote, error)
 	Browser   cmdutil.Browser
-	Now       func() time.Time
 
 	Arg  string
 	JSON bool
@@ -36,7 +34,6 @@ func NewCmdView(f *cmdutil.Factory, runF func(*ViewOptions) error) *cobra.Comman
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
 		Browser:   f.Browser,
-		Now:       time.Now,
 	}
 
 	cmd := &cobra.Command{

@@ -29,8 +29,11 @@ func NewFinder(
 
 // FoundPR is the result of Finder.Find.
 type FoundPR struct {
-	// PR is the resolved pull request.
+	// PR is the resolved pull request. It is nil when returned by FindID for
+	// a numeric argument, since the pull request was not fetched.
 	PR *api.PullRequest
+	// Number is the pull request id. It is always set.
+	Number int
 	// Repo is the repository the pull request was resolved against: the
 	// repo named by a URL argument, otherwise the base repository.
 	Repo git.Repo
@@ -47,6 +50,18 @@ type FoundPR struct {
 // source branch of an open pull request. A detached HEAD with an empty arg is
 // an error.
 func (f *Finder) Find(ctx context.Context, arg string) (*FoundPR, error) {
+	return f.find(ctx, arg, true)
+}
+
+// FindID is like Find for commands that only need the pull request id: when
+// arg names the pull request by number or URL, the pull request itself is
+// not fetched and FoundPR.PR is nil. Branch arguments (and the current
+// branch) still require a lookup, in which case PR is set.
+func (f *Finder) FindID(ctx context.Context, arg string) (*FoundPR, error) {
+	return f.find(ctx, arg, false)
+}
+
+func (f *Finder) find(ctx context.Context, arg string, fetchByNumber bool) (*FoundPR, error) {
 	sel, err := ParsePRArg(arg)
 	if err != nil {
 		return nil, err
@@ -83,14 +98,19 @@ func (f *Finder) Find(ctx context.Context, arg string) (*FoundPR, error) {
 		}
 	}
 
-	if branch != "" {
+	switch {
+	case branch != "":
 		found.PR, err = found.Client.PullRequestForBranch(ctx, found.Repo.FullName(), branch)
-	} else {
+	case fetchByNumber:
 		found.PR, err = found.Client.PullRequest(ctx, found.Repo.FullName(), sel.Number)
+	default:
+		found.Number = sel.Number
+		return found, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	found.Number = found.PR.ID
 	return found, nil
 }
 

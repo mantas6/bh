@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -22,7 +23,7 @@ func TestStatusNotLoggedIn(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "not logged in to bitbucket.org; run `bh auth login`") {
+	if !strings.Contains(err.Error(), "not logged in to bitbucket.org; run `bh auth login` or set BH_TOKEN") {
 		t.Errorf("error = %q", err.Error())
 	}
 }
@@ -101,7 +102,7 @@ func TestStatusInvalidToken(t *testing.T) {
 	srv := apitest.New(t)
 	srv.Handle("GET", "/user", 401, `{"error":{"message":"token expired"}}`)
 
-	ios, _, out, _ := cmdutil.TestIOStreams()
+	ios, _, out, errOut := cmdutil.TestIOStreams()
 	opts := &StatusOptions{
 		IO:           ios,
 		Config:       config.Load,
@@ -112,7 +113,40 @@ func TestStatusInvalidToken(t *testing.T) {
 	if !errors.Is(err, cmdutil.ErrSilent) {
 		t.Fatalf("expected ErrSilent, got %v", err)
 	}
-	if !strings.Contains(out.String(), "✗ Token for bitbucket.org is invalid: token expired") {
-		t.Errorf("output = %q", out.String())
+	if !strings.Contains(errOut.String(), "✗ Token for bitbucket.org (BH_TOKEN) is invalid: token expired") {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+	if out.Len() != 0 {
+		t.Errorf("stdout = %q, want empty", out.String())
+	}
+}
+
+func TestStatusNonAuthErrorIsNotInvalidToken(t *testing.T) {
+	for _, status := range []int{403, 500} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			t.Setenv("BH_CONFIG_DIR", t.TempDir())
+			t.Setenv("BH_TOKEN", "env-token")
+
+			srv := apitest.New(t)
+			srv.Handle("GET", "/user", status, `{"error":{"message":"boom"}}`)
+
+			ios, _, out, errOut := cmdutil.TestIOStreams()
+			opts := &StatusOptions{
+				IO:           ios,
+				Config:       config.Load,
+				APIClientFor: clientForServer(srv),
+			}
+
+			err := statusRun(opts)
+			if err == nil || errors.Is(err, cmdutil.ErrSilent) {
+				t.Fatalf("expected a reported error, got %v", err)
+			}
+			if !strings.Contains(err.Error(), "could not verify the token for bitbucket.org") || !strings.Contains(err.Error(), "boom") {
+				t.Errorf("err = %v", err)
+			}
+			if strings.Contains(out.String()+errOut.String(), "invalid") {
+				t.Errorf("should not claim the token is invalid: out=%q err=%q", out.String(), errOut.String())
+			}
+		})
 	}
 }

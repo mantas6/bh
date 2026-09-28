@@ -10,7 +10,7 @@ import (
 
 // ErrNoToken is returned when an API client is required but no token is
 // configured.
-var ErrNoToken = errors.New("not logged in; run `bh auth login` or set BH_TOKEN")
+var ErrNoToken = errors.New("not logged in to " + DefaultHost + "; run `bh auth login` or set BH_TOKEN")
 
 // HTTPError describes a non-2xx API response.
 type HTTPError struct {
@@ -90,11 +90,13 @@ func IsNotFound(err error) bool {
 	return false
 }
 
-// IsUnauthorized reports whether err is a 401/403 HTTPError.
+// IsUnauthorized reports whether err is a 401 HTTPError, i.e. the
+// credentials were missing or rejected. A 403 (valid credentials lacking
+// permission) is not included.
 func IsUnauthorized(err error) bool {
 	var he *HTTPError
 	if errors.As(err, &he) {
-		return he.StatusCode == http.StatusUnauthorized || he.StatusCode == http.StatusForbidden
+		return he.StatusCode == http.StatusUnauthorized
 	}
 	return false
 }

@@ -43,8 +43,15 @@ func logoutRun(opts *LogoutOptions) error {
 	}
 
 	host := config.DefaultHost
+	_, source := cfg.Token(host)
+	envToken := source == config.TokenSourceEnv
+	cs := opts.IO.ErrColorScheme()
+
 	if cfg.Host(host) == nil {
-		return fmt.Errorf("not logged in to %s", host)
+		if envToken {
+			return fmt.Errorf("no stored credentials for %s; the token comes from the BH_TOKEN environment variable, unset it to log out", host)
+		}
+		return cmdutil.NotLoggedInError(host)
 	}
 
 	cfg.RemoveHost(host)
@@ -52,6 +59,9 @@ func logoutRun(opts *LogoutOptions) error {
 		return err
 	}
 
-	fmt.Fprintf(opts.IO.ErrOut, "%s Logged out of %s\n", opts.IO.ErrColorScheme().SuccessIcon(), host)
+	fmt.Fprintf(opts.IO.ErrOut, "%s Logged out of %s\n", cs.SuccessIcon(), host)
+	if envToken {
+		fmt.Fprintf(opts.IO.ErrOut, "%s The BH_TOKEN environment variable is set, so bh remains authenticated; unset it to fully log out.\n", cs.WarningIcon())
+	}
 	return nil
 }

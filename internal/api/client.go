@@ -215,9 +215,10 @@ func (c *Client) Paginate(ctx context.Context, path string, query url.Values, li
 }
 
 // PaginateAll collects up to limit decoded values of type T from a paginated
-// endpoint. limit <= 0 means unlimited.
+// endpoint. limit <= 0 means unlimited. An empty collection yields a non-nil
+// empty slice so it encodes as `[]` rather than `null`.
 func PaginateAll[T any](ctx context.Context, c *Client, path string, query url.Values, limit int) ([]T, error) {
-	var out []T
+	out := []T{}
 	err := c.Paginate(ctx, path, query, limit, func(raw json.RawMessage) error {
 		var v T
 		if err := json.Unmarshal(raw, &v); err != nil {

@@ -3,6 +3,7 @@ package pr
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mantas6/bh/internal/api"
@@ -213,6 +214,96 @@ func TestCheckoutForkSynthesizedURL(t *testing.T) {
 		"rev-parse --verify --quiet refs/heads/feature",
 		"checkout -b feature --no-track refs/remotes/forkws/feature",
 		"config branch.feature.remote git@bitbucket.org:forkws/myrepo.git",
+		"config branch.feature.merge refs/heads/feature",
+	})
+}
+
+func TestCheckoutForkSynthesizedURLGitPlusSSH(t *testing.T) {
+	pr := samplePR()
+	pr.Source.Branch.Name = "feature"
+	pr.Source.Repository = &api.Repository{FullName: "forkws/myrepo"}
+
+	stub := gittest.New()
+	stub.Register("", gittest.Exit(1), "rev-parse", "--verify", "--quiet", "refs/heads/feature")
+
+	rr := &git.ResolvedRemote{
+		Remote: git.Remote{Name: "origin", FetchURL: "git+ssh://git@bitbucket.org/myws/myrepo.git"},
+		Repo:   testRepo(),
+	}
+	runCheckout(t, pr, rr, stub, nil)
+
+	if got := stub.CallStrings()[0]; got != "fetch --end-of-options git@bitbucket.org:forkws/myrepo.git +refs/heads/feature:refs/remotes/forkws/feature" {
+		t.Errorf("fetch = %q, want the SSH clone URL", got)
+	}
+}
+
+func TestCheckoutDeletedForkErrors(t *testing.T) {
+	srv := apitest.New(t)
+	pr := checkoutPR()
+	pr.Source.Repository = nil
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, pr)
+
+	stub := gittest.New()
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := &CheckoutOptions{
+		IO:        ios,
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		Git:       gitFunc(stub),
+		BaseRepo:  baseRepoFunc(originRemote()),
+		Arg:       "123",
+	}
+	err := checkoutRun(opts)
+	if err == nil || !strings.Contains(err.Error(), "source repository of pull request #123 is no longer available") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(stub.Calls) != 0 {
+		t.Errorf("unexpected git calls: %v", stub.CallStrings())
+	}
+}
+
+func TestCheckoutURLRepoUsesItsOwnRemote(t *testing.T) {
+	srv := apitest.New(t)
+	pr := checkoutPR()
+	pr.Source.Repository = &api.Repository{FullName: "other/repo"}
+	srv.Handle("GET", "/repositories/other/repo/pullrequests/123", 200, pr)
+
+	stub := gittest.New()
+	stub.Register("origin\tgit@bitbucket.org:myws/myrepo.git (fetch)\n"+
+		"origin\tgit@bitbucket.org:myws/myrepo.git (push)\n"+
+		"other\tgit@bitbucket.org:other/repo.git (fetch)\n"+
+		"other\tgit@bitbucket.org:other/repo.git (push)\n", nil, "remote", "-v")
+	stub.Register("", gittest.Exit(1), "rev-parse", "--verify", "--quiet", "refs/heads/feature")
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := &CheckoutOptions{
+		IO:        ios,
+		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		Git:       gitFunc(stub),
+		BaseRepo:  baseRepoFunc(originRemote()),
+		Arg:       "https://bitbucket.org/other/repo/pull-requests/123",
+	}
+	if err := checkoutRun(opts); err != nil {
+		t.Fatalf("checkoutRun: %v", err)
+	}
+	assertCalls(t, stub.CallStrings(), []string{
+		"remote -v",
+		"fetch --end-of-options other +refs/heads/feature:refs/remotes/other/feature",
+		"rev-parse --verify --quiet refs/heads/feature",
+		"checkout -b feature --track other/feature",
+	})
+}
+
+func TestCheckoutSameRepoWithoutRemoteFetchesByURL(t *testing.T) {
+	stub := gittest.New()
+	stub.Register("", gittest.Exit(1), "rev-parse", "--verify", "--quiet", "refs/heads/feature")
+
+	runCheckout(t, checkoutPR(), nil, stub, nil)
+
+	assertCalls(t, stub.CallStrings(), []string{
+		"fetch --end-of-options https://bitbucket.org/myws/myrepo.git +refs/heads/feature:refs/remotes/myws/feature",
+		"rev-parse --verify --quiet refs/heads/feature",
+		"checkout -b feature --no-track refs/remotes/myws/feature",
+		"config branch.feature.remote https://bitbucket.org/myws/myrepo.git",
 		"config branch.feature.merge refs/heads/feature",
 	})
 }

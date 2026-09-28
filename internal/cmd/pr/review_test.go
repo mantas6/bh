@@ -116,7 +116,20 @@ func TestReviewCommentRequiresBody(t *testing.T) {
 	opts.Comment = true
 	err := reviewRun(opts)
 	var fe *cmdutil.FlagError
-	if err == nil || !errors.As(err, &fe) {
+	if err == nil || !errors.As(err, &fe) || !strings.Contains(err.Error(), "comment body is required") {
+		t.Fatalf("expected body FlagError, got %v", err)
+	}
+}
+
+func TestReviewCommentBlankBodyRequiresBody(t *testing.T) {
+	srv := apitest.New(t)
+
+	opts := newReviewOpts(t, srv)
+	opts.Comment = true
+	opts.Body = "  \n"
+	err := reviewRun(opts)
+	var fe *cmdutil.FlagError
+	if !errors.As(err, &fe) {
 		t.Fatalf("expected FlagError, got %v", err)
 	}
 }
