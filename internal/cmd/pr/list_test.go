@@ -13,7 +13,7 @@ import (
 
 func newListOptions(srv *apitest.Server) *ListOptions {
 	return &ListOptions{
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		BaseRepo:  baseRepoFunc(nil),
 		Now:       fixedNow,
 		State:     "open",
@@ -116,9 +116,10 @@ func TestListStateAllAuthorMe(t *testing.T) {
 	}
 
 	var listReq *apitest.Request
-	for i := range srv.Requests {
-		if strings.HasSuffix(srv.Requests[i].Path, "/pullrequests") {
-			listReq = &srv.Requests[i]
+	reqs := srv.Requests()
+	for i := range reqs {
+		if strings.HasSuffix(reqs[i].Path, "/pullrequests") {
+			listReq = &reqs[i]
 		}
 	}
 	if listReq == nil {

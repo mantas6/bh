@@ -20,7 +20,7 @@ func TestApprove(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &ApproveOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -46,7 +46,7 @@ func TestApproveUndo(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &ApproveOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -97,7 +97,7 @@ func TestApproveStderrIconUncolouredWhenRedirected(t *testing.T) {
 	ios.SetStderrTTY(false)
 	opts := &ApproveOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -131,7 +131,7 @@ func TestApproveCancelledContext(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	f := &cmdutil.Factory{
 		IOStreams: ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 	}
@@ -145,7 +145,7 @@ func TestApproveCancelledContext(t *testing.T) {
 	if err := cmd.ExecuteContext(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
-	if len(srv.Requests) != 0 {
-		t.Errorf("requests = %v, want none", srv.Requests)
+	if len(srv.Requests()) != 0 {
+		t.Errorf("requests = %v, want none", srv.Requests())
 	}
 }

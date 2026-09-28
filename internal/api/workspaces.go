@@ -2,13 +2,15 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
 // WorkspaceMembers lists members of a workspace (up to limit; <=0 unlimited).
 func (c *Client) WorkspaceMembers(ctx context.Context, workspace string, limit int) ([]WorkspaceMember, error) {
-	path := fmt.Sprintf("/workspaces/%s/members", workspace)
+	path := "/workspaces/" + url.PathEscape(workspace) + "/members"
 	return PaginateAll[WorkspaceMember](ctx, c, path, nil, limit)
 }
 
@@ -20,16 +22,48 @@ func normalizeUUID(s string) string {
 	return strings.ToLower(s)
 }
 
-// FindMember resolves a workspace member by nickname, display name (both
-// case-insensitive), uuid (with or without braces), or account_id. It returns
-// an error when there is no match or when the query is ambiguous.
-func (c *Client) FindMember(ctx context.Context, workspace, query string) (*User, error) {
+// FindMembers resolves each query to a workspace member by nickname, display
+// name (both case-insensitive), uuid (with or without braces), or account_id,
+// fetching the member list once. The result is keyed by the trimmed query;
+// blank queries are skipped. Every query that has no match or is ambiguous is
+// reported in the (joined) error.
+func (c *Client) FindMembers(ctx context.Context, workspace string, queries []string) (map[string]User, error) {
+	found := map[string]User{}
+	var wanted []string
+	for _, q := range queries {
+		if q = strings.TrimSpace(q); q != "" {
+			wanted = append(wanted, q)
+		}
+	}
+	if len(wanted) == 0 {
+		return found, nil
+	}
+
 	members, err := c.WorkspaceMembers(ctx, workspace, 0)
 	if err != nil {
 		return nil, err
 	}
 
-	q := strings.TrimSpace(query)
+	var errs []error
+	for _, q := range wanted {
+		if _, ok := found[q]; ok {
+			continue
+		}
+		u, err := matchMember(members, q)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		found[q] = u
+	}
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	return found, nil
+}
+
+// matchMember returns the single member identified by q.
+func matchMember(members []WorkspaceMember, q string) (User, error) {
 	lower := strings.ToLower(q)
 	qUUID := normalizeUUID(q)
 
@@ -58,15 +92,14 @@ func (c *Client) FindMember(ctx context.Context, workspace, query string) (*User
 
 	switch len(matches) {
 	case 0:
-		return nil, fmt.Errorf("no workspace member matches %q", query)
+		return User{}, fmt.Errorf("no workspace member matches %q", q)
 	case 1:
-		u := matches[0]
-		return &u, nil
+		return matches[0], nil
 	default:
-		var names []string
+		names := make([]string, 0, len(matches))
 		for _, m := range matches {
 			names = append(names, m.DisplayName)
 		}
-		return nil, fmt.Errorf("%q is ambiguous; matches: %s", query, strings.Join(names, ", "))
+		return User{}, fmt.Errorf("%q is ambiguous; matches: %s", q, strings.Join(names, ", "))
 	}
 }

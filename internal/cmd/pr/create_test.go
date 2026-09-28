@@ -27,9 +27,10 @@ func originRemote() *git.ResolvedRemote {
 // findRequest returns the last recorded request matching method+path suffix.
 func findRequest(srv *apitest.Server, method, pathSuffix string) *apitest.Request {
 	var found *apitest.Request
-	for i := range srv.Requests {
-		if srv.Requests[i].Method == method && strings.HasSuffix(srv.Requests[i].Path, pathSuffix) {
-			found = &srv.Requests[i]
+	reqs := srv.Requests()
+	for i := range reqs {
+		if reqs[i].Method == method && strings.HasSuffix(reqs[i].Path, pathSuffix) {
+			found = &reqs[i]
 		}
 	}
 	return found
@@ -45,7 +46,7 @@ func TestCreateBodyShape(t *testing.T) {
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:                ios,
-		APIClient:         func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient:         func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:               gitFunc(gittest.New()),
 		BaseRepo:          baseRepoFunc(originRemote()),
 		Title:             "My title",
@@ -107,7 +108,7 @@ func TestCreateAutoPushTTYYes(t *testing.T) {
 
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Title:     "T",
@@ -132,7 +133,7 @@ func TestCreateNonTTYNoPushErrors(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Title:     "T",
@@ -158,7 +159,7 @@ func TestCreateNonTTYWithPush(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Title:     "T",
@@ -186,7 +187,7 @@ func TestCreateUpstreamAheadWarns(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Title:     "T",
@@ -220,7 +221,7 @@ func TestCreateFillSingleCommit(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Head:      "feature",
@@ -253,7 +254,7 @@ func TestCreateWeb(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Browser:   fb,
@@ -276,7 +277,7 @@ func TestCreateNonTTYRequiresTitle(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Head:      "feature",
@@ -297,7 +298,7 @@ func TestCreateTTYEmptyTitleErrors(t *testing.T) {
 	in.WriteString("\n")
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Head:      "feature",
@@ -326,7 +327,7 @@ func TestCreatePushTargetsBranchUpstreamRemote(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(upstreamBaseRemote()),
 		Title:     "T",
@@ -354,7 +355,7 @@ func TestCreatePushUntrackedDefaultsToOrigin(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(upstreamBaseRemote()),
 		Title:     "T",
@@ -380,7 +381,7 @@ func TestCreatePushWhenRemoteBranchExistsUntracked(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Title:     "T",
@@ -406,7 +407,7 @@ func TestCreateRemoteBranchExistsUntrackedWarnsAhead(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Title:     "T",
@@ -431,7 +432,7 @@ func TestCreateFillUnknownBaseErrors(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Head:      "feature",
@@ -458,7 +459,7 @@ func TestCreateFillExplicitBaseUsesRemoteRef(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(upstreamBaseRemote()),
 		Base:      "develop",
@@ -562,7 +563,7 @@ func TestCreatePipedPromptsShareStdin(t *testing.T) {
 
 	opts := &CreateOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Head:      "feature",

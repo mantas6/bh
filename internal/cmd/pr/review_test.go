@@ -17,7 +17,7 @@ func newReviewOpts(t *testing.T, srv *apitest.Server) *ReviewOptions {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	return &ReviewOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -75,7 +75,7 @@ func TestReviewRequestChanges(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &ReviewOptions{
 		IO:             ios,
-		APIClient:      func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient:      func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:            gitFunc(gittest.New()),
 		BaseRepo:       baseRepoFunc(originRemote()),
 		Arg:            "123",

@@ -91,28 +91,26 @@ func editRun(ctx context.Context, opts *EditOptions) error {
 	}
 	pr, repo, client := found.PR, found.Repo, found.Client
 
-	body := map[string]any{}
+	var in api.UpdatePRInput
 	if opts.titleSet {
-		body["title"] = opts.Title
+		in.Title = &opts.Title
 	}
 	if opts.bodySet {
-		body["description"] = opts.Body
+		in.Description = &opts.Body
 	}
 	if opts.BodyFile != "" {
 		b, err := shared.ReadBodyFile(opts.IO, opts.BodyFile)
 		if err != nil {
 			return err
 		}
-		body["description"] = b
+		in.Description = &b
 	}
 	if opts.Base != "" {
-		body["destination"] = map[string]any{"branch": map[string]any{"name": opts.Base}}
+		in.DestinationBranch = &opts.Base
 	}
-	if opts.Draft {
-		body["draft"] = true
-	}
-	if opts.Ready {
-		body["draft"] = false
+	if opts.Draft || opts.Ready {
+		draft := opts.Draft
+		in.Draft = &draft
 	}
 
 	if len(opts.AddReviewers) > 0 || len(opts.RemoveReviewers) > 0 {
@@ -120,14 +118,10 @@ func editRun(ctx context.Context, opts *EditOptions) error {
 		if err != nil {
 			return err
 		}
-		rv := make([]map[string]any, 0, len(uuids))
-		for _, uuid := range uuids {
-			rv = append(rv, map[string]any{"uuid": uuid})
-		}
-		body["reviewers"] = rv
+		in.Reviewers = uuids
 	}
 
-	updated, err := client.UpdatePullRequest(ctx, repo.FullName(), pr.ID, body)
+	updated, err := client.UpdatePullRequest(ctx, repo.FullName(), pr.ID, in)
 	if err != nil {
 		return err
 	}
@@ -136,9 +130,33 @@ func editRun(ctx context.Context, opts *EditOptions) error {
 	return nil
 }
 
+// resolveReviewers maps reviewer names to member UUIDs (in order, without
+// duplicates) with a single workspace member listing.
+func resolveReviewers(ctx context.Context, client *api.Client, workspace string, names []string) ([]string, error) {
+	var uuids []string
+	if len(names) == 0 {
+		return uuids, nil
+	}
+	found, err := client.FindMembers(ctx, workspace, names)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for _, name := range names {
+		u, ok := found[strings.TrimSpace(name)]
+		if !ok || seen[u.UUID] {
+			continue
+		}
+		seen[u.UUID] = true
+		uuids = append(uuids, u.UUID)
+	}
+	return uuids, nil
+}
+
 // mergeReviewers computes the reviewer UUID list to send: it starts from the
 // PR's current reviewers, drops those matched by remove, and adds resolved
-// members from add.
+// members from add. The result is never nil, so an emptied list is sent as
+// such rather than leaving reviewers unchanged.
 func mergeReviewers(ctx context.Context, client *api.Client, workspace string, pr *api.PullRequest, add, remove []string) ([]string, error) {
 	removeUUIDs := map[string]bool{}
 	for _, rm := range remove {
@@ -153,8 +171,13 @@ func mergeReviewers(ctx context.Context, client *api.Client, workspace string, p
 		}
 	}
 
+	added, err := resolveReviewers(ctx, client, workspace, add)
+	if err != nil {
+		return nil, err
+	}
+
 	seen := map[string]bool{}
-	var uuids []string
+	uuids := []string{}
 	for _, u := range pr.Reviewers {
 		if removeUUIDs[u.UUID] || seen[u.UUID] {
 			continue
@@ -162,23 +185,12 @@ func mergeReviewers(ctx context.Context, client *api.Client, workspace string, p
 		seen[u.UUID] = true
 		uuids = append(uuids, u.UUID)
 	}
-
-	for _, name := range add {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
+	for _, uuid := range added {
+		if !seen[uuid] {
+			seen[uuid] = true
+			uuids = append(uuids, uuid)
 		}
-		u, err := client.FindMember(ctx, workspace, name)
-		if err != nil {
-			return nil, err
-		}
-		if seen[u.UUID] {
-			continue
-		}
-		seen[u.UUID] = true
-		uuids = append(uuids, u.UUID)
 	}
-
 	return uuids, nil
 }
 

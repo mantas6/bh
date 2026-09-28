@@ -49,7 +49,7 @@ func baseRepoFunc() func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 // clientFunc returns an APIClient provider bound to srv.
 func clientFunc(srv *apitest.Server) func() (*api.Client, error) {
 	return func() (*api.Client, error) {
-		return srv.Client(), nil
+		return srv.APIClient(), nil
 	}
 }
 
@@ -95,8 +95,9 @@ func commentAt(id int, author, raw string, minutesAgo int) api.Comment {
 // findRequest returns the first recorded request whose method matches and
 // whose path ends with suffix, or nil.
 func findRequest(srv *apitest.Server, method, suffix string) *apitest.Request {
-	for i := range srv.Requests {
-		r := &srv.Requests[i]
+	reqs := srv.Requests()
+	for i := range reqs {
+		r := &reqs[i]
 		if r.Method == method && strings.HasSuffix(r.Path, suffix) {
 			return r
 		}

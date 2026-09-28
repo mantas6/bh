@@ -34,7 +34,7 @@ func TestMergeDefaultStrategyTTYConfirmYes(t *testing.T) {
 
 	opts := &MergeOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -74,7 +74,7 @@ func TestMergeYesWithoutStrategyOmitsStrategy(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -105,7 +105,7 @@ func TestMergeDeleteBranchWithoutRemoteSkipsLocalCleanup(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:           ios,
-		APIClient:    func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient:    func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:          gitFunc(stub),
 		BaseRepo:     baseRepoFunc(nil),
 		Arg:          "123",
@@ -139,7 +139,7 @@ func TestMergeURLRepoUsedForSameRepoCheck(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:           ios,
-		APIClient:    func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient:    func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:          gitFunc(stub),
 		BaseRepo:     baseRepoFunc(nil),
 		Arg:          "https://bitbucket.org/other/repo/pull-requests/123",
@@ -165,7 +165,7 @@ func TestMergeConfirmNoCancels(t *testing.T) {
 
 	opts := &MergeOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -183,7 +183,7 @@ func TestMergeNonTTYWithoutFlagsErrors(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -202,7 +202,7 @@ func TestMergeSquashWithMessageBody(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -244,7 +244,7 @@ func TestMergeDeleteBranchLocalCleanup(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:           ios,
-		APIClient:    func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient:    func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:          gitFunc(stub),
 		BaseRepo:     baseRepoFunc(originRemote()),
 		Arg:          "123",
@@ -281,7 +281,7 @@ func TestMergeNotOpenErrors(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &MergeOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",

@@ -46,7 +46,7 @@ func runCheckout(t *testing.T, pr *api.PullRequest, rr *git.ResolvedRemote, stub
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CheckoutOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(rr),
 		Arg:       "123",
@@ -247,7 +247,7 @@ func TestCheckoutDeletedForkErrors(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CheckoutOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "123",
@@ -277,7 +277,7 @@ func TestCheckoutURLRepoUsesItsOwnRemote(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CheckoutOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(stub),
 		BaseRepo:  baseRepoFunc(originRemote()),
 		Arg:       "https://bitbucket.org/other/repo/pull-requests/123",

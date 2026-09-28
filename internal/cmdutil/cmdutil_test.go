@@ -3,6 +3,7 @@ package cmdutil
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -18,8 +19,43 @@ func TestNotLoggedInError(t *testing.T) {
 	if !errors.Is(err, api.ErrNoToken) {
 		t.Error("errors.Is(err, api.ErrNoToken) = false")
 	}
-	if err.Error() != api.ErrNoToken.Error() {
-		t.Errorf("hint differs from api.ErrNoToken: %q vs %q", err.Error(), api.ErrNoToken.Error())
+	if h := HintFor(err); h != "" {
+		t.Errorf("HintFor(NotLoggedInError) = %q, want none (message already has it)", h)
+	}
+}
+
+func TestHintFor(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string // substring; "" means no hint
+	}{
+		{"nil", nil, ""},
+		{"plain", errors.New("boom"), ""},
+		{"no token", api.ErrNoToken, "bh auth login"},
+		{"wrapped no token", fmt.Errorf("x: %w", api.ErrNoToken), "bh auth login"},
+		{"401", &api.HTTPError{StatusCode: 401}, "invalid or expired"},
+		{"wrapped 401", fmt.Errorf("x: %w", &api.HTTPError{StatusCode: 401}), "bh auth login"},
+		{"403", &api.HTTPError{StatusCode: 403}, "lacks permission"},
+		{"404", &api.HTTPError{StatusCode: 404}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := HintFor(tt.err)
+			if tt.want == "" {
+				if got != "" {
+					t.Errorf("HintFor = %q, want none", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("HintFor = %q, want to contain %q", got, tt.want)
+			}
+		})
+	}
+	if HintFor(&api.HTTPError{StatusCode: 401}) == HintFor(&api.HTTPError{StatusCode: 403}) {
+		t.Error("401 and 403 hints should differ")
 	}
 }
 

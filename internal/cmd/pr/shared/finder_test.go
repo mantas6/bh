@@ -42,7 +42,7 @@ func newFinder(t *testing.T, srv *apitest.Server, stub *gittest.Stub) *Finder {
 	t.Helper()
 	return NewFinder(
 		func(context.Context) (git.Repo, *git.ResolvedRemote, error) { return testRepo(), originRemote(), nil },
-		func() (*api.Client, error) { return srv.Client(), nil },
+		func() (*api.Client, error) { return srv.APIClient(), nil },
 		func() (git.Runner, error) {
 			if stub == nil {
 				t.Error("git should not be needed")
@@ -98,8 +98,8 @@ func TestFindIDSkipsFetchForNumber(t *testing.T) {
 			if found.Client == nil {
 				t.Error("client is nil")
 			}
-			if len(srv.Requests) != 0 {
-				t.Errorf("unexpected requests: %v", srv.Requests)
+			if len(srv.Requests()) != 0 {
+				t.Errorf("unexpected requests: %v", srv.Requests())
 			}
 		})
 	}
@@ -131,10 +131,10 @@ func TestFindByBranch(t *testing.T) {
 	if found.PR.ID != 123 {
 		t.Errorf("id = %d", found.PR.ID)
 	}
-	if len(srv.Requests) != 1 {
-		t.Fatalf("requests = %d, want 1", len(srv.Requests))
+	if len(srv.Requests()) != 1 {
+		t.Fatalf("requests = %d, want 1", len(srv.Requests()))
 	}
-	if q := srv.Requests[0].Query.Get("q"); !strings.Contains(q, `source.branch.name="feature"`) {
+	if q := srv.Requests()[0].Query.Get("q"); !strings.Contains(q, `source.branch.name="feature"`) {
 		t.Errorf("q = %q", q)
 	}
 }
@@ -159,7 +159,7 @@ func TestFindByURLNeedsNoGitOrBaseRepo(t *testing.T) {
 			t.Error("BaseRepo should not be called for a URL")
 			return git.Repo{}, nil, errors.New("not a git repository")
 		},
-		func() (*api.Client, error) { return srv.Client(), nil },
+		func() (*api.Client, error) { return srv.APIClient(), nil },
 		func() (git.Runner, error) { return nil, errors.New("git executable not found") },
 	)
 
@@ -228,7 +228,7 @@ func TestFindCurrentBranch(t *testing.T) {
 	if found.PR.ID != 123 {
 		t.Errorf("id = %d", found.PR.ID)
 	}
-	if q := srv.Requests[0].Query.Get("q"); !strings.Contains(q, `source.branch.name="feature"`) {
+	if q := srv.Requests()[0].Query.Get("q"); !strings.Contains(q, `source.branch.name="feature"`) {
 		t.Errorf("q = %q", q)
 	}
 }
@@ -249,7 +249,7 @@ func TestFindCurrentBranchGitUnavailable(t *testing.T) {
 
 	f := NewFinder(
 		func(context.Context) (git.Repo, *git.ResolvedRemote, error) { return testRepo(), nil, nil },
-		func() (*api.Client, error) { return srv.Client(), nil },
+		func() (*api.Client, error) { return srv.APIClient(), nil },
 		func() (git.Runner, error) { return nil, errors.New("git executable not found") },
 	)
 	_, err := f.Find(t.Context(), "")
@@ -264,7 +264,7 @@ func TestFindInvalidArg(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if len(srv.Requests) != 0 {
-		t.Errorf("requests = %d, want 0", len(srv.Requests))
+	if len(srv.Requests()) != 0 {
+		t.Errorf("requests = %d, want 0", len(srv.Requests()))
 	}
 }

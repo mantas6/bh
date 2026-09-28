@@ -34,6 +34,9 @@ const (
 //   - cmdutil.ErrCancel: ExitCancel, nothing printed.
 //   - *cmdutil.FlagError: "bh: <msg>" plus a "--help" hint, ExitError.
 //   - anything else, including *git.Error: "bh: <msg>", ExitError.
+//
+// Any hint from cmdutil.HintFor (e.g. for 401/403 API errors) is printed on
+// the line after the message.
 func HandleError(errOut io.Writer, cmd *cobra.Command, err error) int {
 	switch {
 	case err == nil:
@@ -47,6 +50,9 @@ func HandleError(errOut io.Writer, cmd *cobra.Command, err error) int {
 	}
 
 	fmt.Fprintf(errOut, "bh: %s\n", err)
+	if hint := cmdutil.HintFor(err); hint != "" {
+		fmt.Fprintln(errOut, hint)
+	}
 
 	var flagErr *cmdutil.FlagError
 	if errors.As(err, &flagErr) && cmd != nil {

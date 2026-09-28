@@ -13,7 +13,7 @@ import (
 
 func newViewOptions(srv *apitest.Server) *ViewOptions {
 	return &ViewOptions{
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(nil),
 		Arg:       "123",

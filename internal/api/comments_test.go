@@ -1,7 +1,6 @@
 package api_test
 
 import (
-	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -13,16 +12,16 @@ func TestCreateCommentReply(t *testing.T) {
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/3/comments", 201,
 		map[string]any{"id": 100})
-	c := srv.Client()
+	c := srv.APIClient()
 	if _, err := c.CreateComment(t.Context(), "ws/repo", 3, api.CommentInput{
 		Body:     "reply text",
 		ParentID: 55,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	req := lastRequest(t, srv, http.MethodPost, "/repositories/ws/repo/pullrequests/3/comments")
+	req := srv.LastRequest(t, http.MethodPost, "/repositories/ws/repo/pullrequests/3/comments")
 	var body map[string]any
-	json.Unmarshal(req.Body, &body)
+	req.DecodeJSON(t, &body)
 	if body["content"].(map[string]any)["raw"] != "reply text" {
 		t.Errorf("content wrong: %v", body)
 	}
@@ -38,7 +37,7 @@ func TestCreateCommentInline(t *testing.T) {
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/3/comments", 201,
 		map[string]any{"id": 101})
-	c := srv.Client()
+	c := srv.APIClient()
 	to := 12
 	if _, err := c.CreateComment(t.Context(), "ws/repo", 3, api.CommentInput{
 		Body: "look here",
@@ -47,9 +46,9 @@ func TestCreateCommentInline(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	req := lastRequest(t, srv, http.MethodPost, "/repositories/ws/repo/pullrequests/3/comments")
+	req := srv.LastRequest(t, http.MethodPost, "/repositories/ws/repo/pullrequests/3/comments")
 	var body map[string]any
-	json.Unmarshal(req.Body, &body)
+	req.DecodeJSON(t, &body)
 	inline := body["inline"].(map[string]any)
 	if inline["path"] != "main.go" {
 		t.Errorf("inline path wrong: %v", inline)
@@ -69,7 +68,7 @@ func TestListComments(t *testing.T) {
 	srv := apitest.New(t)
 	srv.Handle(http.MethodGet, "/repositories/ws/repo/pullrequests/3/comments", 200,
 		`{"values":[{"id":1,"content":{"raw":"a"}},{"id":2,"content":{"raw":"b"}}]}`)
-	c := srv.Client()
+	c := srv.APIClient()
 	cs, err := c.ListComments(t.Context(), "ws/repo", 3, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +83,7 @@ func TestResolveReopenDeleteComment(t *testing.T) {
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/3/comments/9/resolve", 200, nil)
 	srv.Handle(http.MethodDelete, "/repositories/ws/repo/pullrequests/3/comments/9/resolve", 204, nil)
 	srv.Handle(http.MethodDelete, "/repositories/ws/repo/pullrequests/3/comments/9", 204, nil)
-	c := srv.Client()
+	c := srv.APIClient()
 	ctx := t.Context()
 	if err := c.ResolveComment(ctx, "ws/repo", 3, 9); err != nil {
 		t.Errorf("resolve: %v", err)

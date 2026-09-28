@@ -55,6 +55,25 @@ func (e *notLoggedInError) Is(target error) bool {
 	return target == api.ErrNoToken
 }
 
+// HintFor returns an actionable, user-facing suggestion to print after err,
+// or "" when there is none. It maps the api package's sentinel errors and
+// status predicates to CLI wording so api itself stays free of it.
+func HintFor(err error) string {
+	var nl *notLoggedInError
+	switch {
+	case err == nil, errors.As(err, &nl):
+		// NotLoggedInError already says what to do.
+		return ""
+	case errors.Is(err, api.ErrNoToken):
+		return "To authenticate, run: bh auth login (or set BH_TOKEN)"
+	case api.IsUnauthorized(err):
+		return "The token was rejected; it may be invalid or expired. To re-authenticate, run: bh auth login"
+	case api.IsForbidden(err):
+		return "The token lacks permission for this action; check its scopes and your access to the repository."
+	}
+	return ""
+}
+
 // IsUserCancellation reports whether err represents a user cancellation.
 func IsUserCancellation(err error) bool {
 	return errors.Is(err, ErrCancel)

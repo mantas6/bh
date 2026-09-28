@@ -54,6 +54,27 @@ func TestHandleError(t *testing.T) {
 			"",
 		},
 		{
+			"unauthorized",
+			child,
+			&api.HTTPError{StatusCode: 401, Message: "Unauthorized"},
+			ExitError,
+			"bh: Unauthorized (HTTP 401)\n" + cmdutil.HintFor(&api.HTTPError{StatusCode: 401}) + "\n",
+		},
+		{
+			"forbidden",
+			child,
+			fmt.Errorf("approving: %w", &api.HTTPError{StatusCode: 403, Message: "Forbidden"}),
+			ExitError,
+			"bh: approving: Forbidden (HTTP 403)\n" + cmdutil.HintFor(&api.HTTPError{StatusCode: 403}) + "\n",
+		},
+		{
+			"not logged in has no extra hint",
+			child,
+			cmdutil.NotLoggedInError("bitbucket.org"),
+			ExitError,
+			"bh: not logged in to bitbucket.org; run `bh auth login` or set BH_TOKEN\n",
+		},
+		{
 			"git failure",
 			child,
 			&git.Error{Args: []string{"push", "origin"}, ExitCode: 128, Stderr: "fatal: denied\n"},
@@ -84,7 +105,7 @@ func TestCancelledContextAbortsCommand(t *testing.T) {
 	ios, _, _, errOut := cmdutil.TestIOStreams()
 	f := &cmdutil.Factory{
 		IOStreams: ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		BaseRepo: func(ctx context.Context) (git.Repo, *git.ResolvedRemote, error) {
 			return git.Repo{Host: "bitbucket.org", Workspace: "ws", Name: "repo"}, nil, nil
 		},
@@ -99,8 +120,8 @@ func TestCancelledContextAbortsCommand(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
-	if len(srv.Requests) != 0 {
-		t.Errorf("requests = %v, want none", srv.Requests)
+	if len(srv.Requests()) != 0 {
+		t.Errorf("requests = %v, want none", srv.Requests())
 	}
 	if code := HandleError(errOut, ran, err); code != ExitInterrupt {
 		t.Errorf("exit code = %d, want %d", code, ExitInterrupt)

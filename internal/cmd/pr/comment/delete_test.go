@@ -87,8 +87,8 @@ func TestDeleteYesSkipsPrompt(t *testing.T) {
 	if findRequest(srv, "DELETE", "/comments/9") == nil {
 		t.Error("expected DELETE request")
 	}
-	if len(srv.Requests) != 1 {
-		t.Errorf("requests = %v, want only the DELETE", srv.Requests)
+	if len(srv.Requests()) != 1 {
+		t.Errorf("requests = %v, want only the DELETE", srv.Requests())
 	}
 }
 

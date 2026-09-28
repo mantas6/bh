@@ -2,15 +2,24 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
-	"time"
 )
 
+// maxPollAttempts is the default cap on merge task-status polls.
+const maxPollAttempts = 60
+
+func prsPath(repo string) string {
+	return repoPath(repo) + "/pullrequests"
+}
+
 func prPath(repo string, id int) string {
-	return fmt.Sprintf("/repositories/%s/pullrequests/%d", repo, id)
+	return prsPath(repo) + "/" + strconv.Itoa(id)
 }
 
 // ListPROptions configures ListPullRequests.
@@ -41,14 +50,13 @@ func (c *Client) ListPullRequests(ctx context.Context, repo string, opts ListPRO
 	if opts.Sort != "" {
 		q.Set("sort", opts.Sort)
 	}
-	path := fmt.Sprintf("/repositories/%s/pullrequests", repo)
-	return PaginateAll[PullRequest](ctx, c, path, q, opts.Limit)
+	return PaginateAll[PullRequest](ctx, c, prsPath(repo), q, opts.Limit)
 }
 
 // PullRequest fetches a single pull request by id.
 func (c *Client) PullRequest(ctx context.Context, repo string, id int) (*PullRequest, error) {
 	var pr PullRequest
-	if _, err := c.Do(ctx, http.MethodGet, prPath(repo, id), nil, nil, &pr); err != nil {
+	if _, _, err := c.Do(ctx, http.MethodGet, prPath(repo, id), nil, nil, &pr); err != nil {
 		return nil, err
 	}
 	return &pr, nil
@@ -108,25 +116,73 @@ func (c *Client) CreatePullRequest(ctx context.Context, repo string, in CreatePR
 	}
 
 	if in.Reviewers != nil {
-		reviewers := make([]map[string]any, 0, len(in.Reviewers))
-		for _, uuid := range in.Reviewers {
-			reviewers = append(reviewers, map[string]any{"uuid": uuid})
-		}
-		body["reviewers"] = reviewers
+		body["reviewers"] = uuidRefs(in.Reviewers)
 	}
 
 	var pr PullRequest
-	path := fmt.Sprintf("/repositories/%s/pullrequests", repo)
-	if _, err := c.Do(ctx, http.MethodPost, path, nil, body, &pr); err != nil {
+	if _, _, err := c.Do(ctx, http.MethodPost, prsPath(repo), nil, body, &pr); err != nil {
 		return nil, err
 	}
 	return &pr, nil
 }
 
+// UpdatePRInput is a partial pull request update for UpdatePullRequest. Nil
+// fields are left unchanged.
+type UpdatePRInput struct {
+	Title             *string
+	Description       *string
+	DestinationBranch *string
+	// Reviewers replaces the reviewer list with these UUIDs when non-nil
+	// (an empty, non-nil slice removes every reviewer).
+	Reviewers []string
+	Draft     *bool
+}
+
+type uuidRef struct {
+	UUID string `json:"uuid"`
+}
+
+func uuidRefs(uuids []string) []uuidRef {
+	refs := make([]uuidRef, 0, len(uuids))
+	for _, u := range uuids {
+		refs = append(refs, uuidRef{UUID: u})
+	}
+	return refs
+}
+
+type branchRef struct {
+	Branch struct {
+		Name string `json:"name"`
+	} `json:"branch"`
+}
+
+// updatePRBody is the JSON shape of UpdatePRInput.
+type updatePRBody struct {
+	Title       *string    `json:"title,omitempty"`
+	Description *string    `json:"description,omitempty"`
+	Destination *branchRef `json:"destination,omitempty"`
+	Reviewers   *[]uuidRef `json:"reviewers,omitempty"`
+	Draft       *bool      `json:"draft,omitempty"`
+}
+
 // UpdatePullRequest applies a partial update via PUT.
-func (c *Client) UpdatePullRequest(ctx context.Context, repo string, id int, body map[string]any) (*PullRequest, error) {
+func (c *Client) UpdatePullRequest(ctx context.Context, repo string, id int, in UpdatePRInput) (*PullRequest, error) {
+	body := updatePRBody{
+		Title:       in.Title,
+		Description: in.Description,
+		Draft:       in.Draft,
+	}
+	if in.DestinationBranch != nil {
+		body.Destination = &branchRef{}
+		body.Destination.Branch.Name = *in.DestinationBranch
+	}
+	if in.Reviewers != nil {
+		refs := uuidRefs(in.Reviewers)
+		body.Reviewers = &refs
+	}
+
 	var pr PullRequest
-	if _, err := c.Do(ctx, http.MethodPut, prPath(repo, id), nil, body, &pr); err != nil {
+	if _, _, err := c.Do(ctx, http.MethodPut, prPath(repo, id), nil, body, &pr); err != nil {
 		return nil, err
 	}
 	return &pr, nil
@@ -152,40 +208,61 @@ func (c *Client) MergePullRequest(ctx context.Context, repo string, id int, in M
 	}
 
 	path := prPath(repo, id) + "/merge"
-	var pr PullRequest
-	resp, err := c.Do(ctx, http.MethodPost, path, nil, body, &pr)
+	var raw json.RawMessage
+	status, header, err := c.Do(ctx, http.MethodPost, path, nil, body, &raw)
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode == http.StatusAccepted {
-		return c.pollMerge(ctx, repo, id, resp)
+
+	if status == http.StatusAccepted {
+		var st MergeTaskStatus
+		if len(raw) > 0 {
+			if err := json.Unmarshal(raw, &st); err != nil {
+				return nil, fmt.Errorf("decoding merge task status: %w", err)
+			}
+		}
+		statusURL, err := c.taskStatusURL(c.resolveURL(path), header.Get("Location"), repo, id, st.TaskID)
+		if err != nil {
+			return nil, err
+		}
+		return c.pollMerge(ctx, repo, id, statusURL, st)
+	}
+
+	var pr PullRequest
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &pr); err != nil {
+			return nil, fmt.Errorf("decoding response body: %w", err)
+		}
 	}
 	return &pr, nil
 }
 
-// pollMerge polls the merge task-status endpoint until SUCCESS or failure.
-func (c *Client) pollMerge(ctx context.Context, repo string, id int, resp *http.Response) (*PullRequest, error) {
-	taskID := ""
-	if loc := resp.Header.Get("Location"); loc != "" {
-		parts := strings.Split(strings.TrimRight(loc, "/"), "/")
-		taskID = parts[len(parts)-1]
-	}
-
-	attempts := c.MaxPollAttempts
-	if attempts <= 0 {
-		attempts = 60
-	}
-	statusPath := prPath(repo, id) + "/merge/task-status/" + taskID
-
-	for i := 0; i < attempts; i++ {
-		var st MergeTaskStatus
-		if _, err := c.Do(ctx, http.MethodGet, statusPath, nil, nil, &st); err != nil {
-			return nil, err
+// taskStatusURL picks the URL to poll for an async merge: the Location
+// header (resolved against the merge request URL when relative), falling back
+// to the task-status endpoint for taskID.
+func (c *Client) taskStatusURL(requestURL, location, repo string, id int, taskID string) (string, error) {
+	if location != "" {
+		base, err := url.Parse(requestURL)
+		if err != nil {
+			return "", err
 		}
-		if st.TaskID != "" && taskID == "" {
-			taskID = st.TaskID
-			statusPath = prPath(repo, id) + "/merge/task-status/" + taskID
+		ref, err := url.Parse(location)
+		if err != nil {
+			return "", fmt.Errorf("invalid merge task Location %q: %w", location, err)
 		}
+		return base.ResolveReference(ref).String(), nil
+	}
+	if taskID != "" {
+		return c.resolveURL(prPath(repo, id) + "/merge/task-status/" + url.PathEscape(taskID)), nil
+	}
+	return "", errors.New("merge was accepted but the response has no task status location")
+}
+
+// pollMerge polls statusURL until the merge task succeeds or fails. st is the
+// status already returned with the 202 response.
+func (c *Client) pollMerge(ctx context.Context, repo string, id int, statusURL string, st MergeTaskStatus) (*PullRequest, error) {
+	attempts := c.maxPollAttempts()
+	for i := 0; ; i++ {
 		switch strings.ToUpper(st.TaskStatus) {
 		case "SUCCESS":
 			if st.MergeResult != nil {
@@ -197,44 +274,48 @@ func (c *Client) pollMerge(ctx context.Context, repo string, id int, resp *http.
 		default:
 			return nil, fmt.Errorf("merge failed with task status %q", st.TaskStatus)
 		}
+		if i >= attempts {
+			return nil, fmt.Errorf("merge did not complete after %d polls", attempts)
+		}
 
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(c.PollInterval):
+		if err := c.sleep(ctx, c.pollInterval()); err != nil {
+			return nil, err
+		}
+		st = MergeTaskStatus{}
+		if _, _, err := c.Do(ctx, http.MethodGet, statusURL, nil, nil, &st); err != nil {
+			return nil, err
 		}
 	}
-	return nil, fmt.Errorf("merge did not complete after %d polls", attempts)
 }
 
 // ApprovePullRequest approves a pull request.
 func (c *Client) ApprovePullRequest(ctx context.Context, repo string, id int) error {
-	_, err := c.Do(ctx, http.MethodPost, prPath(repo, id)+"/approve", nil, nil, nil)
+	_, _, err := c.Do(ctx, http.MethodPost, prPath(repo, id)+"/approve", nil, nil, nil)
 	return err
 }
 
 // UnapprovePullRequest removes the caller's approval.
 func (c *Client) UnapprovePullRequest(ctx context.Context, repo string, id int) error {
-	_, err := c.Do(ctx, http.MethodDelete, prPath(repo, id)+"/approve", nil, nil, nil)
+	_, _, err := c.Do(ctx, http.MethodDelete, prPath(repo, id)+"/approve", nil, nil, nil)
 	return err
 }
 
 // RequestChanges marks the caller as requesting changes.
 func (c *Client) RequestChanges(ctx context.Context, repo string, id int) error {
-	_, err := c.Do(ctx, http.MethodPost, prPath(repo, id)+"/request-changes", nil, nil, nil)
+	_, _, err := c.Do(ctx, http.MethodPost, prPath(repo, id)+"/request-changes", nil, nil, nil)
 	return err
 }
 
 // UnrequestChanges clears the caller's request-changes state.
 func (c *Client) UnrequestChanges(ctx context.Context, repo string, id int) error {
-	_, err := c.Do(ctx, http.MethodDelete, prPath(repo, id)+"/request-changes", nil, nil, nil)
+	_, _, err := c.Do(ctx, http.MethodDelete, prPath(repo, id)+"/request-changes", nil, nil, nil)
 	return err
 }
 
 // DeclinePullRequest declines (closes) a pull request.
 func (c *Client) DeclinePullRequest(ctx context.Context, repo string, id int) (*PullRequest, error) {
 	var pr PullRequest
-	if _, err := c.Do(ctx, http.MethodPost, prPath(repo, id)+"/decline", nil, nil, &pr); err != nil {
+	if _, _, err := c.Do(ctx, http.MethodPost, prPath(repo, id)+"/decline", nil, nil, &pr); err != nil {
 		return nil, err
 	}
 	return &pr, nil

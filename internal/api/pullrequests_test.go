@@ -1,10 +1,14 @@
 package api_test
 
 import (
-	"encoding/json"
+	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
@@ -14,7 +18,7 @@ func TestCreatePullRequestBodyShape(t *testing.T) {
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests", 201,
 		map[string]any{"id": 42, "title": "Feature"})
-	c := srv.Client()
+	c := srv.APIClient()
 
 	rev := "{reviewer-uuid}"
 	pr, err := c.CreatePullRequest(t.Context(), "ws/repo", api.CreatePRInput{
@@ -34,11 +38,9 @@ func TestCreatePullRequestBodyShape(t *testing.T) {
 		t.Errorf("id = %d, want 42", pr.ID)
 	}
 
-	req := lastRequest(t, srv, http.MethodPost, "/repositories/ws/repo/pullrequests")
+	req := srv.LastRequest(t, http.MethodPost, "/repositories/ws/repo/pullrequests")
 	var body map[string]any
-	if err := json.Unmarshal(req.Body, &body); err != nil {
-		t.Fatal(err)
-	}
+	req.DecodeJSON(t, &body)
 	if body["title"] != "Feature" || body["description"] != "Body" {
 		t.Errorf("title/description wrong: %v", body)
 	}
@@ -66,16 +68,16 @@ func TestCreatePullRequestOmitsDestination(t *testing.T) {
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests", 201,
 		map[string]any{"id": 1})
-	c := srv.Client()
+	c := srv.APIClient()
 	if _, err := c.CreatePullRequest(t.Context(), "ws/repo", api.CreatePRInput{
 		Title:        "T",
 		SourceBranch: "b",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	req := lastRequest(t, srv, http.MethodPost, "/repositories/ws/repo/pullrequests")
+	req := srv.LastRequest(t, http.MethodPost, "/repositories/ws/repo/pullrequests")
 	var body map[string]any
-	json.Unmarshal(req.Body, &body)
+	req.DecodeJSON(t, &body)
 	if _, ok := body["destination"]; ok {
 		t.Errorf("destination should be omitted, got %v", body["destination"])
 	}
@@ -95,7 +97,7 @@ func TestPullRequestForBranch(t *testing.T) {
 		gotSort = r.URL.Query().Get("sort")
 		w.Write([]byte(`{"values":[{"id":7,"state":"OPEN"}]}`))
 	})
-	c := srv.Client()
+	c := srv.APIClient()
 	pr, err := c.PullRequestForBranch(t.Context(), "ws/repo", "feature/x")
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +120,7 @@ func TestPullRequestForBranchEscapesQuery(t *testing.T) {
 		gotQuery = r.URL.Query().Get("q")
 		w.Write([]byte(`{"values":[{"id":7,"state":"OPEN"}]}`))
 	})
-	c := srv.Client()
+	c := srv.APIClient()
 	if _, err := c.PullRequestForBranch(t.Context(), "ws/repo", `x" OR state="MERGED`); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +148,7 @@ func TestQuoteBBQL(t *testing.T) {
 func TestListPullRequestsEmptyIsNonNil(t *testing.T) {
 	srv := apitest.New(t)
 	srv.Handle(http.MethodGet, "/repositories/ws/repo/pullrequests", 200, `{"values":[]}`)
-	c := srv.Client()
+	c := srv.APIClient()
 	prs, err := c.ListPullRequests(t.Context(), "ws/repo", api.ListPROptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +162,7 @@ func TestPullRequestForBranchNone(t *testing.T) {
 	srv := apitest.New(t)
 	srv.Handle(http.MethodGet, "/repositories/ws/repo/pullrequests", 200,
 		`{"values":[]}`)
-	c := srv.Client()
+	c := srv.APIClient()
 	_, err := c.PullRequestForBranch(t.Context(), "ws/repo", "nope")
 	if err == nil || !strings.Contains(err.Error(), "no open pull request found for branch") {
 		t.Fatalf("err = %v", err)
@@ -174,7 +176,7 @@ func TestListPullRequestsState(t *testing.T) {
 		states = r.URL.Query()["state"]
 		w.Write([]byte(`{"values":[]}`))
 	})
-	c := srv.Client()
+	c := srv.APIClient()
 	if _, err := c.ListPullRequests(t.Context(), "ws/repo", api.ListPROptions{
 		State: []string{"OPEN", "MERGED"},
 	}); err != nil {
@@ -185,40 +187,125 @@ func TestListPullRequestsState(t *testing.T) {
 	}
 }
 
-func TestMergePolling(t *testing.T) {
+// mergeServer answers POST .../5/merge with 202 and the given Location, and
+// serves statuses (one per poll, the last repeating) on statusPath.
+func mergeServer(t *testing.T, location, statusPath string, statuses ...string) (*apitest.Server, *atomic.Int32) {
+	t.Helper()
 	srv := apitest.New(t)
 	srv.HandleFunc(http.MethodPost, "/repositories/ws/repo/pullrequests/5/merge", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Location", srv.URL+"/repositories/ws/repo/pullrequests/5/merge/task-status/abc123")
-		w.WriteHeader(http.StatusAccepted)
-		w.Write([]byte(`{"task_status":"PENDING"}`))
-	})
-	var polls int
-	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/pullrequests/5/merge/task-status/abc123", func(w http.ResponseWriter, r *http.Request) {
-		polls++
-		if polls < 2 {
-			w.Write([]byte(`{"task_status":"PENDING"}`))
-			return
+		if location != "" {
+			w.Header().Set("Location", strings.ReplaceAll(location, "SRV", srv.URL))
 		}
-		w.Write([]byte(`{"task_status":"SUCCESS","merge_result":{"id":5,"state":"MERGED"}}`))
+		w.WriteHeader(http.StatusAccepted)
+		fmt.Fprint(w, `{"task_status":"PENDING","task_id":"abc123"}`)
 	})
-	c := srv.Client()
-	pr, err := c.MergePullRequest(t.Context(), "ws/repo", 5, api.MergeInput{Strategy: "squash"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pr.State != "MERGED" {
-		t.Errorf("state = %q, want MERGED", pr.State)
-	}
-	if polls < 2 {
-		t.Errorf("expected polling, got %d polls", polls)
-	}
+	var polls atomic.Int32
+	srv.HandleFunc(http.MethodGet, statusPath, func(w http.ResponseWriter, r *http.Request) {
+		n := int(polls.Add(1))
+		fmt.Fprint(w, statuses[min(n, len(statuses))-1])
+	})
+	return srv, &polls
+}
 
-	// Verify merge body shape.
-	req := lastRequest(t, srv, http.MethodPost, "/repositories/ws/repo/pullrequests/5/merge")
-	var body map[string]any
-	json.Unmarshal(req.Body, &body)
-	if body["type"] != "pullrequest" || body["merge_strategy"] != "squash" {
-		t.Errorf("merge body wrong: %v", body)
+const (
+	statusPath = "/repositories/ws/repo/pullrequests/5/merge/task-status/abc123"
+	pending    = `{"task_status":"PENDING"}`
+	succeeded  = `{"task_status":"SUCCESS","merge_result":{"id":5,"state":"MERGED"}}`
+)
+
+func TestMergePolling(t *testing.T) {
+	tests := []struct {
+		name       string
+		location   string
+		statusPath string
+	}{
+		{"absolute Location", "SRV" + statusPath, statusPath},
+		{"relative Location", "task-status/abc123", "/repositories/ws/repo/pullrequests/5/task-status/abc123"},
+		{"root-relative Location", "/elsewhere/tasks/abc123?x=1", "/elsewhere/tasks/abc123"},
+		{"no Location falls back to task_id", "", statusPath},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv, polls := mergeServer(t, tt.location, tt.statusPath, pending, succeeded)
+			c := srv.APIClient()
+			var sleeps []time.Duration
+			c.PollInterval = 3 * time.Second
+			c.Sleep = func(ctx context.Context, d time.Duration) error {
+				sleeps = append(sleeps, d)
+				return nil
+			}
+			pr, err := c.MergePullRequest(t.Context(), "ws/repo", 5, api.MergeInput{Strategy: "squash"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pr.State != "MERGED" {
+				t.Errorf("state = %q, want MERGED", pr.State)
+			}
+			if polls.Load() != 2 {
+				t.Errorf("polls = %d, want 2", polls.Load())
+			}
+			if len(sleeps) != 2 || sleeps[0] != 3*time.Second {
+				t.Errorf("sleeps = %v, want 2 x 3s", sleeps)
+			}
+
+			req := srv.LastRequest(t, http.MethodPost, "/repositories/ws/repo/pullrequests/5/merge")
+			var body map[string]any
+			req.DecodeJSON(t, &body)
+			if body["type"] != "pullrequest" || body["merge_strategy"] != "squash" {
+				t.Errorf("merge body wrong: %v", body)
+			}
+		})
+	}
+}
+
+func TestMergeFailedStatus(t *testing.T) {
+	srv, _ := mergeServer(t, "SRV"+statusPath, statusPath, pending, `{"task_status":"FAILED"}`)
+	_, err := srv.APIClient().MergePullRequest(t.Context(), "ws/repo", 5, api.MergeInput{})
+	if err == nil || !strings.Contains(err.Error(), `merge failed with task status "FAILED"`) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestMergePollingGivesUp(t *testing.T) {
+	srv, polls := mergeServer(t, "SRV"+statusPath, statusPath, pending)
+	c := srv.APIClient()
+	c.MaxPollAttempts = 3
+	_, err := c.MergePullRequest(t.Context(), "ws/repo", 5, api.MergeInput{})
+	if err == nil || !strings.Contains(err.Error(), "did not complete after 3 polls") {
+		t.Fatalf("err = %v", err)
+	}
+	if polls.Load() != 3 {
+		t.Errorf("polls = %d, want 3", polls.Load())
+	}
+}
+
+func TestMergePollingCancelled(t *testing.T) {
+	srv, polls := mergeServer(t, "SRV"+statusPath, statusPath, pending)
+	c := srv.APIClient()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	c.Sleep = func(ctx context.Context, d time.Duration) error {
+		if polls.Load() == 1 {
+			cancel()
+		}
+		return ctx.Err()
+	}
+	_, err := c.MergePullRequest(ctx, "ws/repo", 5, api.MergeInput{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if polls.Load() != 1 {
+		t.Errorf("polls = %d, want 1", polls.Load())
+	}
+}
+
+func TestMergeAcceptedWithoutLocation(t *testing.T) {
+	srv := apitest.New(t)
+	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/5/merge", http.StatusAccepted, `{}`)
+	_, err := srv.APIClient().MergePullRequest(t.Context(), "ws/repo", 5, api.MergeInput{})
+	if err == nil || !strings.Contains(err.Error(), "no task status location") {
+		t.Fatalf("err = %v", err)
 	}
 }
 
@@ -226,7 +313,7 @@ func TestMergeSync(t *testing.T) {
 	srv := apitest.New(t)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/5/merge", 200,
 		map[string]any{"id": 5, "state": "MERGED"})
-	c := srv.Client()
+	c := srv.APIClient()
 	pr, err := c.MergePullRequest(t.Context(), "ws/repo", 5, api.MergeInput{})
 	if err != nil {
 		t.Fatal(err)
@@ -246,7 +333,7 @@ func TestApproveDeclineChanges(t *testing.T) {
 	srv.Handle(http.MethodDelete, "/repositories/ws/repo/pullrequests/1/request-changes", 204, nil)
 	srv.Handle(http.MethodPost, "/repositories/ws/repo/pullrequests/1/decline", 200,
 		map[string]any{"id": 1, "state": "DECLINED"})
-	c := srv.Client()
+	c := srv.APIClient()
 	ctx := t.Context()
 
 	if err := c.ApprovePullRequest(ctx, "ws/repo", 1); err != nil {
@@ -271,27 +358,36 @@ func TestApproveDeclineChanges(t *testing.T) {
 }
 
 func TestUpdatePullRequest(t *testing.T) {
-	srv := apitest.New(t)
-	srv.Handle(http.MethodPut, "/repositories/ws/repo/pullrequests/9", 200,
-		map[string]any{"id": 9, "title": "New"})
-	c := srv.Client()
-	pr, err := c.UpdatePullRequest(t.Context(), "ws/repo", 9, map[string]any{"title": "New"})
-	if err != nil {
-		t.Fatal(err)
+	title, desc, base, draft := "New", "", "develop", false
+	tests := []struct {
+		name string
+		in   api.UpdatePRInput
+		want string
+	}{
+		{"title only", api.UpdatePRInput{Title: &title}, `{"title":"New"}`},
+		{"empty description is sent", api.UpdatePRInput{Description: &desc}, `{"description":""}`},
+		{"destination", api.UpdatePRInput{DestinationBranch: &base}, `{"destination":{"branch":{"name":"develop"}}}`},
+		{"draft false is sent", api.UpdatePRInput{Draft: &draft}, `{"draft":false}`},
+		{"reviewers", api.UpdatePRInput{Reviewers: []string{"{a}", "{b}"}}, `{"reviewers":[{"uuid":"{a}"},{"uuid":"{b}"}]}`},
+		{"empty reviewers clears", api.UpdatePRInput{Reviewers: []string{}}, `{"reviewers":[]}`},
+		{"nothing", api.UpdatePRInput{}, `{}`},
 	}
-	if pr.Title != "New" {
-		t.Errorf("title = %q", pr.Title)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := apitest.New(t)
+			srv.Handle(http.MethodPut, "/repositories/ws/repo/pullrequests/9", 200,
+				map[string]any{"id": 9, "title": "New"})
+			pr, err := srv.APIClient().UpdatePullRequest(t.Context(), "ws/repo", 9, tt.in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pr.Title != "New" {
+				t.Errorf("title = %q", pr.Title)
+			}
+			if got := string(srv.LastRequest(t, http.MethodPut, "/repositories/ws/repo/pullrequests/9").Body); got != tt.want {
+				t.Errorf("body = %s, want %s", got, tt.want)
+			}
+		})
 	}
-}
-
-func lastRequest(t *testing.T, srv *apitest.Server, method, path string) apitest.Request {
-	t.Helper()
-	for i := len(srv.Requests) - 1; i >= 0; i-- {
-		r := srv.Requests[i]
-		if r.Method == method && r.Path == path {
-			return r
-		}
-	}
-	t.Fatalf("no recorded request %s %s", method, path)
-	return apitest.Request{}
 }

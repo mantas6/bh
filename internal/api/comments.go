@@ -7,7 +7,7 @@ import (
 )
 
 func commentsPath(repo string, id int) string {
-	return fmt.Sprintf("/repositories/%s/pullrequests/%d/comments", repo, id)
+	return prPath(repo, id) + "/comments"
 }
 
 // ListComments lists comments on a pull request (up to limit; <=0 unlimited).
@@ -44,7 +44,7 @@ func (c *Client) CreateComment(ctx context.Context, repo string, id int, in Comm
 	}
 
 	var out Comment
-	if _, err := c.Do(ctx, http.MethodPost, commentsPath(repo, id), nil, body, &out); err != nil {
+	if _, _, err := c.Do(ctx, http.MethodPost, commentsPath(repo, id), nil, body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -53,20 +53,20 @@ func (c *Client) CreateComment(ctx context.Context, repo string, id int, in Comm
 // DeleteComment removes a comment.
 func (c *Client) DeleteComment(ctx context.Context, repo string, id, commentID int) error {
 	path := fmt.Sprintf("%s/%d", commentsPath(repo, id), commentID)
-	_, err := c.Do(ctx, http.MethodDelete, path, nil, nil, nil)
+	_, _, err := c.Do(ctx, http.MethodDelete, path, nil, nil, nil)
 	return err
 }
 
 // ResolveComment marks a comment thread as resolved.
 func (c *Client) ResolveComment(ctx context.Context, repo string, id, commentID int) error {
 	path := fmt.Sprintf("%s/%d/resolve", commentsPath(repo, id), commentID)
-	_, err := c.Do(ctx, http.MethodPost, path, nil, nil, nil)
+	_, _, err := c.Do(ctx, http.MethodPost, path, nil, nil, nil)
 	return err
 }
 
 // ReopenComment reopens (unresolves) a comment thread.
 func (c *Client) ReopenComment(ctx context.Context, repo string, id, commentID int) error {
 	path := fmt.Sprintf("%s/%d/resolve", commentsPath(repo, id), commentID)
-	_, err := c.Do(ctx, http.MethodDelete, path, nil, nil, nil)
+	_, _, err := c.Do(ctx, http.MethodDelete, path, nil, nil, nil)
 	return err
 }

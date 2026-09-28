@@ -31,8 +31,8 @@ func TestResolve(t *testing.T) {
 	if findRequest(srv, "POST", "/comments/9/resolve") == nil {
 		t.Error("expected POST .../resolve")
 	}
-	if len(srv.Requests) != 1 {
-		t.Errorf("requests = %v, want only the resolve call", srv.Requests)
+	if len(srv.Requests()) != 1 {
+		t.Errorf("requests = %v, want only the resolve call", srv.Requests())
 	}
 	if !strings.Contains(errOut.String(), "Resolved comment #9") {
 		t.Errorf("expected success line on stderr, got %q", errOut.String())

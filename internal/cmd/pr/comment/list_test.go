@@ -300,7 +300,7 @@ func TestListByBranchWithoutGit(t *testing.T) {
 	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
-	if q := srv.Requests[0].Query.Get("q"); !strings.Contains(q, `source.branch.name="feature"`) {
+	if q := srv.Requests()[0].Query.Get("q"); !strings.Contains(q, `source.branch.name="feature"`) {
 		t.Errorf("q = %q", q)
 	}
 	if !strings.Contains(out.String(), "#1 ada") {

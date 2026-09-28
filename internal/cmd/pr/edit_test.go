@@ -23,7 +23,7 @@ func TestEditChangedKeysAndReviewers(t *testing.T) {
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := &EditOptions{
 		IO:              ios,
-		APIClient:       func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient:       func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:             gitFunc(gittest.New()),
 		BaseRepo:        baseRepoFunc(nil),
 		Arg:             "123",
@@ -76,7 +76,7 @@ func TestEditDraftReady(t *testing.T) {
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &EditOptions{
 		IO:        ios,
-		APIClient: func() (*api.Client, error) { return srv.Client(), nil },
+		APIClient: func() (*api.Client, error) { return srv.APIClient(), nil },
 		Git:       gitFunc(gittest.New()),
 		BaseRepo:  baseRepoFunc(nil),
 		Arg:       "123",
@@ -91,6 +91,76 @@ func TestEditDraftReady(t *testing.T) {
 	json.Unmarshal(req.Body, &body)
 	if body["draft"] != false {
 		t.Errorf("draft = %v, want false", body["draft"])
+	}
+}
+
+func TestEditReviewersResolvedWithOneListing(t *testing.T) {
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
+	srv.Handle("GET", "/workspaces/myws/members", 200, valuesPage([]api.WorkspaceMember{
+		{User: api.User{UUID: "{cara-uuid}", Nickname: "cara"}},
+		{User: api.User{UUID: "{dan-uuid}", Nickname: "dan"}},
+	}))
+	srv.Handle("PUT", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := &EditOptions{
+		IO:           ios,
+		APIClient:    func() (*api.Client, error) { return srv.APIClient(), nil },
+		Git:          gitFunc(gittest.New()),
+		BaseRepo:     baseRepoFunc(nil),
+		Arg:          "123",
+		AddReviewers: []string{"cara", "dan", "bob-uuid"},
+	}
+	if err := editRun(t.Context(), opts); err == nil || !strings.Contains(err.Error(), `no workspace member matches "bob-uuid"`) {
+		t.Fatalf("err = %v, want unmatched reviewer error", err)
+	}
+
+	opts.AddReviewers = []string{"cara", "dan", "CARA"}
+	if err := editRun(t.Context(), opts); err != nil {
+		t.Fatalf("editRun: %v", err)
+	}
+	var members int
+	for _, r := range srv.Requests() {
+		if r.Path == "/workspaces/myws/members" {
+			members++
+		}
+	}
+	if members != 2 {
+		t.Errorf("member listings = %d, want one per run", members)
+	}
+	var body struct {
+		Reviewers []api.User `json:"reviewers"`
+	}
+	srv.LastRequest(t, "PUT", "/repositories/myws/myrepo/pullrequests/123").DecodeJSON(t, &body)
+	var got []string
+	for _, u := range body.Reviewers {
+		got = append(got, u.UUID)
+	}
+	if strings.Join(got, ",") != "{bob-uuid},{cara-uuid},{dan-uuid}" {
+		t.Errorf("reviewers = %v", got)
+	}
+}
+
+func TestEditRemoveAllReviewersSendsEmptyList(t *testing.T) {
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
+	srv.Handle("PUT", "/repositories/myws/myrepo/pullrequests/123", 200, samplePR())
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := &EditOptions{
+		IO:              ios,
+		APIClient:       func() (*api.Client, error) { return srv.APIClient(), nil },
+		Git:             gitFunc(gittest.New()),
+		BaseRepo:        baseRepoFunc(nil),
+		Arg:             "123",
+		RemoveReviewers: []string{"bob"},
+	}
+	if err := editRun(t.Context(), opts); err != nil {
+		t.Fatalf("editRun: %v", err)
+	}
+	if got := string(srv.LastRequest(t, "PUT", "/repositories/myws/myrepo/pullrequests/123").Body); got != `{"reviewers":[]}` {
+		t.Errorf("body = %s", got)
 	}
 }
 

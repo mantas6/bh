@@ -195,17 +195,9 @@ func createRun(ctx context.Context, opts *CreateOptions) error {
 		}
 	}
 
-	var reviewerUUIDs []string
-	for _, name := range opts.Reviewers {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		u, err := client.FindMember(ctx, repo.Workspace, name)
-		if err != nil {
-			return err
-		}
-		reviewerUUIDs = append(reviewerUUIDs, u.UUID)
+	reviewerUUIDs, err := resolveReviewers(ctx, client, repo.Workspace, opts.Reviewers)
+	if err != nil {
+		return err
 	}
 
 	pr, err := client.CreatePullRequest(ctx, repo.FullName(), api.CreatePRInput{
