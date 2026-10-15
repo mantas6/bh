@@ -181,7 +181,9 @@ time is an RFC 3339 timestamp. `--base` (`-B`) and
 `--limit` (`-L`, default 30) allows, a notice such as
 `Showing 30 of 142 results; use --limit to see more` is printed on standard
 error (the total is included when Bitbucket reports it); `--json` output never
-gets the notice.
+gets the notice. When nothing matches, `No pull requests match your search in
+ws/repo` is printed on standard output on a terminal and on standard error
+otherwise, so piped output stays empty.
 
 `--search` (`-s`) takes a Bitbucket
 [BBQL](https://developer.atlassian.com/cloud/bitbucket/rest/intro/#filtering)
@@ -196,6 +198,9 @@ and matched against the title, description and source branch, so
 
 ```console
 $ bh pr list --base dev
+
+Showing 2 open pull requests in myws/myrepo
+
 #934  Add login form   ft/login → dev   ada   OPEN  about 3 hours ago
 #930  Fix footer       ft/footer → dev  bob   OPEN  2 days ago
 ```
@@ -210,8 +215,9 @@ requests. The line after it shows the source (`Head:`) and destination
 (`Base:`) commits as short hashes, the base branch, and the last update time as
 an RFC 3339 timestamp in the local time zone (followed by the relative time on
 a terminal); a hash Bitbucket did not report is left out. When builds have
-reported on the pull request, a `Checks:` line counts their latest states (see `bh pr checks`); it is left out when there are
-none or the statuses cannot be fetched. `--json` prints only the pull request
+reported on the pull request, a `Checks:` line counts their latest states (see
+`bh pr checks`); it is left out when there are none or the statuses cannot be
+fetched. `--json` prints only the pull request
 object and does not fetch build statuses.
 
 ```console
@@ -244,7 +250,7 @@ otherwise). `--unresolved` shows only unresolved threads and implies
 $ bh pr view 123 --comments
 Add feature #123
 OPEN • ada wants to merge feature into main • 2 approvals • 3 comments
-Head: 0123456789ab · Base: main fedcba987654 · Updated: 2026-09-10T11:00:00+02:00
+Head: 0123456789ab · Base: main fedcba987654 · Updated: 2026-09-10T11:00:00+02:00 (5 minutes ago)
 Reviewers: bob (approved ✓), cara (changes requested)
 Approved by: bob, dan
 Changes requested by: cara
@@ -292,7 +298,10 @@ are relative; otherwise fields are tab-separated and times are RFC 3339
 timestamps. The command exits with status 1 when any check failed (also with
 `--json`), so it can gate scripts. `--watch` polls every 10 seconds until no
 check is in progress, then prints the final result (redrawing the screen on a
-terminal, printing only the final result otherwise).
+terminal, printing only the final result otherwise). When no build has
+reported, `No checks reported on pull request #<n>` is printed (on standard
+error when standard output is not a terminal) and the exit status is 0; the
+same applies to `bh pr commits` with `No commits in pull request #<n>`.
 
 ```console
 $ bh pr checks 123
@@ -465,7 +474,8 @@ could be mistaken for a field name (such as a branch called `state`) before
 ([gojq](https://github.com/itchyny/gojq)), so `jq` need not be installed. It
 requires `--json` and runs after any field selection. String results are
 printed raw (like `jq -r`), other values as JSON, one result per line, compact
-when piped and indented on a terminal. An invalid expression is a usage error;
+when piped and indented on a terminal (gojq prints object keys sorted, so
+`--jq` output does not keep the `--json <fields>` order). An invalid expression is a usage error;
 an error while evaluating it is reported after the results printed so far.
 
 ```sh

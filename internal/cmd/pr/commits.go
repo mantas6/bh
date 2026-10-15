@@ -84,9 +84,7 @@ func commitsRun(ctx context.Context, opts *CommitsOptions) error {
 
 	isTTY := opts.IO.IsStdoutTTY()
 	if len(commits) == 0 {
-		if isTTY {
-			fmt.Fprintf(opts.IO.Out, "No commits in pull request #%d\n", found.Number)
-		}
+		fmt.Fprintf(ttyOr(opts.IO, isTTY), "No commits in pull request #%d\n", found.Number)
 		return nil
 	}
 

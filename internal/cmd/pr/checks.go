@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"io"
 	"reflect"
 	"slices"
 	"strings"
@@ -265,9 +266,8 @@ func checkStateColor(cs *output.ColorScheme, state string) string {
 func printChecks(ios *cmdutil.IOStreams, statuses []api.CommitStatus, number int, now time.Time) error {
 	isTTY := ios.IsStdoutTTY()
 	if len(statuses) == 0 {
-		if isTTY {
-			fmt.Fprintf(ios.Out, "No checks reported on pull request #%d\n", number)
-		}
+		// Keep piped stdout empty, but tell the reader why.
+		fmt.Fprintf(ttyOr(ios, isTTY), "No checks reported on pull request #%d\n", number)
 		return nil
 	}
 
@@ -284,4 +284,13 @@ func printChecks(ios *cmdutil.IOStreams, statuses []api.CommitStatus, number int
 		table.AddRow(checkName(s), checkStateColor(cs, s.State), updated, s.URL)
 	}
 	return table.Flush()
+}
+
+// ttyOr returns stdout when it is a terminal and stderr otherwise, for notes
+// such as "no results" that must not end up in piped output.
+func ttyOr(ios *cmdutil.IOStreams, isTTY bool) io.Writer {
+	if isTTY {
+		return ios.Out
+	}
+	return ios.ErrOut
 }

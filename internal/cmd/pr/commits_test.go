@@ -98,19 +98,21 @@ func TestCommitsEmpty(t *testing.T) {
 	for _, tty := range []bool{false, true} {
 		srv := apitest.New(t)
 		srv.Handle(http.MethodGet, "/repositories/myws/myrepo/pullrequests/123/commits", 200, `{"values":[]}`)
-		ios, _, out, _ := cmdutil.TestIOStreams()
+		ios, _, out, errOut := cmdutil.TestIOStreams()
 		ios.SetStdoutTTY(tty)
 		opts := newCommitsOptions(t, srv, ios)
 
 		if err := commitsRun(t.Context(), opts); err != nil {
 			t.Fatalf("commitsRun: %v", err)
 		}
-		want := ""
+		// The note goes to stdout on a terminal and to stderr when piped.
+		const note = "No commits in pull request #123\n"
+		wantOut, wantErr := "", note
 		if tty {
-			want = "No commits in pull request #123\n"
+			wantOut, wantErr = note, ""
 		}
-		if out.String() != want {
-			t.Errorf("tty=%v: stdout = %q, want %q", tty, out.String(), want)
+		if out.String() != wantOut || errOut.String() != wantErr {
+			t.Errorf("tty=%v: stdout = %q, stderr = %q; want %q, %q", tty, out.String(), errOut.String(), wantOut, wantErr)
 		}
 
 		opts.JSON = true

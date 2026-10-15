@@ -83,6 +83,26 @@ func TestListEmptyTTY(t *testing.T) {
 	}
 }
 
+func TestListEmptyPiped(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, cmdtest.ValuesPage([]api.PullRequest{}))
+
+	ios, _, out, errOut := cmdutil.TestIOStreams()
+	opts := newListOptions(srv)
+	opts.IO = ios
+
+	if err := listRun(t.Context(), opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	if out.String() != "" {
+		t.Errorf("stdout should stay empty when piped: %q", out.String())
+	}
+	if !strings.Contains(errOut.String(), "No pull requests match your search in myws/myrepo") {
+		t.Errorf("stderr note missing: %q", errOut.String())
+	}
+}
+
 func TestListJSON(t *testing.T) {
 	t.Parallel()
 	srv := apitest.New(t)

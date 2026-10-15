@@ -171,9 +171,7 @@ func listRun(ctx context.Context, opts *ListOptions) error {
 	isTTY := opts.IO.IsStdoutTTY()
 
 	if len(prs) == 0 {
-		if isTTY {
-			fmt.Fprintf(opts.IO.Out, "No pull requests match your search in %s\n", repo.FullName())
-		}
+		fmt.Fprintf(ttyOr(opts.IO, isTTY), "No pull requests match your search in %s\n", repo.FullName())
 		return nil
 	}
 
