@@ -508,3 +508,35 @@ func TestPullRequestCommits(t *testing.T) {
 		t.Errorf("parents = %+v", c.Parents)
 	}
 }
+
+func TestPullRequestStatusesPaginates(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	next := srv.URL + "/repositories/ws/repo/pullrequests/7/statuses?page=2"
+	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/pullrequests/7/statuses", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") == "2" {
+			fmt.Fprint(w, `{"values":[{"key":"lint","name":"Lint","state":"FAILED","url":"https://ci/2","updated_on":"2026-09-10T11:00:00+00:00"}]}`)
+			return
+		}
+		fmt.Fprintf(w, `{"values":[{"key":"build","name":"Build","state":"SUCCESSFUL","url":"https://ci/1","description":"ok",
+			"created_on":"2026-09-10T10:00:00+00:00","updated_on":"2026-09-10T10:30:00+00:00"}],"next":%q}`, next)
+	})
+
+	statuses, err := srv.APIClient().PullRequestStatuses(t.Context(), "ws/repo", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 2 {
+		t.Fatalf("got %d statuses, want 2: %+v", len(statuses), statuses)
+	}
+	s := statuses[0]
+	if s.Key != "build" || s.Name != "Build" || s.State != api.StatusSuccessful || s.URL != "https://ci/1" || s.Description != "ok" {
+		t.Errorf("first status = %+v", s)
+	}
+	if !s.UpdatedOn.Equal(time.Date(2026, 9, 10, 10, 30, 0, 0, time.UTC)) {
+		t.Errorf("updated_on = %v", s.UpdatedOn)
+	}
+	if statuses[1].State != api.StatusFailed {
+		t.Errorf("second status = %+v", statuses[1])
+	}
+}

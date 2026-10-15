@@ -117,6 +117,7 @@ The following remote URL forms are recognized:
 | `bh pr view` | View a pull request |
 | `bh pr diff` | View changes in a pull request (`--name-only`, `--stat`, `--web`) |
 | `bh pr commits` | List the commits of a pull request |
+| `bh pr checks` | Show build status checks of a pull request (`--watch`, `--json`) |
 | `bh pr create` | Create a pull request |
 | `bh pr edit` | Edit a pull request |
 | `bh pr checkout` | Check out a pull request in git |
@@ -169,7 +170,10 @@ approval count and the `Approved by:` / `Changes requested by:` lines cover
 every participant; `Reviewers:` lists only requested reviewers (`none` when
 there are none). The two participant lines are omitted when empty. The header
 reads `merged` / `declined` instead of `wants to merge` for closed pull
-requests.
+requests. When builds have reported on the pull request, a `Checks:` line
+counts their latest states (see `bh pr checks`); it is left out when there are
+none or the statuses cannot be fetched. `--json` prints only the pull request
+object and does not fetch build statuses.
 
 ```console
 $ bh pr view 123
@@ -178,6 +182,7 @@ OPEN • ada wants to merge feature into main • 2 approvals • 3 comments
 Reviewers: bob (approved ✓), cara (changes requested)
 Approved by: bob, dan
 Changes requested by: cara
+Checks: 2 passed, 1 failed
 
 This does things.
 
@@ -237,6 +242,25 @@ the first line of the message. Dates are relative on a terminal and RFC 3339
 timestamps otherwise (fields are then tab-separated); `--json` prints the full
 commit objects.
 
+`bh pr checks` lists the build statuses (CI checks) reported on a pull
+request: name, state (`SUCCESSFUL`, `FAILED`, `INPROGRESS` or `STOPPED`), last
+update and URL, failed checks first. When a build reported several times only
+its latest status is shown. On a terminal a summary line comes first and times
+are relative; otherwise fields are tab-separated and times are RFC 3339
+timestamps. The command exits with status 1 when any check failed (also with
+`--json`), so it can gate scripts. `--watch` polls every 10 seconds until no
+check is in progress, then prints the final result (redrawing the screen on a
+terminal, printing only the final result otherwise).
+
+```console
+$ bh pr checks 123
+Checks: 2 passed, 1 failed
+
+Lint    FAILED      30 minutes ago     https://ci.example.com/lint/42
+Build   SUCCESSFUL  about an hour ago  https://ci.example.com/build/42
+Test    SUCCESSFUL  about an hour ago  https://ci.example.com/test/42
+```
+
 ## Usage examples
 
 ```sh
@@ -265,6 +289,10 @@ bh pr diff 123 --stat
 
 # List the commits of a pull request (newest first)
 bh pr commits 123
+
+# Show build statuses; wait until running builds finish (exit 1 if any failed)
+bh pr checks 123
+bh pr checks 123 --watch
 
 # Check out a pull request locally
 bh pr checkout 123
@@ -328,5 +356,5 @@ The following are intentionally out of scope for now:
 - Bitbucket Data Center (server) support
 - Storing credentials in an OS keyring
 - `--json <fields>` field selection (only a boolean `--json` dump is available)
-- `pr checks` and `pr status`
+- `pr status`
 - A bundled CI workflow

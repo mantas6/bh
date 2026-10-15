@@ -104,7 +104,7 @@ func TestUnknownSubcommand(t *testing.T) {
 		want []string
 	}{
 		{[]string{"pr", "comments", "1"}, []string{`unknown command "comments" for "bh pr"`, `Did you mean "comment" or "commits"?`, "bh pr comment list"}},
-		{[]string{"pr", "checks"}, []string{`unknown command "checks" for "bh pr"`, "not supported yet"}},
+		{[]string{"pr", "chekcs"}, []string{`unknown command "chekcs" for "bh pr"`, `Did you mean "checks"?`}},
 		{[]string{"pr", "files", "1"}, []string{`unknown command "files" for "bh pr"`, "bh pr diff [<pr>] --name-only"}},
 		{[]string{"pr", "status"}, []string{`unknown command "status" for "bh pr"`, "bh pr list --author @me"}},
 		{[]string{"pr", "-R", "ws/repo", "veiw", "1"}, []string{`unknown command "veiw" for "bh pr"`, `Did you mean "view"?`}},

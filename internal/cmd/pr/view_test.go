@@ -21,10 +21,17 @@ func newViewOptions(t *testing.T, srv *apitest.Server) *ViewOptions {
 	}
 }
 
+// handleNoStatuses registers an empty build status list for pull request
+// 123 of repo; the text view always asks for it.
+func handleNoStatuses(srv *apitest.Server, repo string) {
+	srv.Handle("GET", "/repositories/"+repo+"/pullrequests/123/statuses", 200, `{"values":[]}`)
+}
+
 func TestViewText(t *testing.T) {
 	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
+	handleNoStatuses(srv, "myws/myrepo")
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := newViewOptions(t, srv)
@@ -49,6 +56,9 @@ func TestViewText(t *testing.T) {
 			t.Errorf("output missing %q in:\n%s", c, got)
 		}
 	}
+	if strings.Contains(got, "Checks:") {
+		t.Errorf("Checks line should be omitted without statuses:\n%s", got)
+	}
 }
 
 func TestViewForkPrefix(t *testing.T) {
@@ -57,6 +67,7 @@ func TestViewForkPrefix(t *testing.T) {
 	pr.Source.Repository = &api.Repository{FullName: "fork/myrepo"}
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, pr)
+	handleNoStatuses(srv, "myws/myrepo")
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := newViewOptions(t, srv)
@@ -76,6 +87,7 @@ func TestViewNoDescription(t *testing.T) {
 	pr.Description = ""
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, pr)
+	handleNoStatuses(srv, "myws/myrepo")
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := newViewOptions(t, srv)
@@ -136,6 +148,7 @@ func renderView(t *testing.T, pr *api.PullRequest) string {
 	t.Helper()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, pr)
+	handleNoStatuses(srv, "myws/myrepo")
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := newViewOptions(t, srv)
@@ -260,6 +273,7 @@ func viewWithComments(t *testing.T, pr *api.PullRequest, comments []api.Comment,
 	t.Helper()
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, pr)
+	handleNoStatuses(srv, "myws/myrepo")
 	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123/comments", 200, cmdtest.ValuesPage(comments))
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
@@ -390,6 +404,7 @@ func TestViewCommentHintURLArg(t *testing.T) {
 	pr.Links.HTML.Href = "https://bitbucket.org/other/repo/pull-requests/123"
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/other/repo/pullrequests/123", 200, pr)
+	handleNoStatuses(srv, "other/repo")
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := newViewOptions(t, srv)
@@ -446,5 +461,79 @@ func TestViewCommentsFlags(t *testing.T) {
 					captured.Comments, captured.Unresolved, tt.wantComments, tt.wantUnresolved)
 			}
 		})
+	}
+}
+
+// viewWithStatuses runs `pr view` in text mode against the sample pull
+// request, answering the statuses request with status and body.
+func viewWithStatuses(t *testing.T, status int, body string) string {
+	t.Helper()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123/statuses", status, body)
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newViewOptions(t, srv)
+	opts.IO = ios
+	if err := viewRun(t.Context(), opts); err != nil {
+		t.Fatalf("viewRun: %v", err)
+	}
+	return out.String()
+}
+
+func TestViewChecksLine(t *testing.T) {
+	t.Parallel()
+	got := viewWithStatuses(t, 200, `{"values":[
+		{"key":"a","name":"Build","state":"SUCCESSFUL","updated_on":"2026-09-10T11:00:00+00:00"},
+		{"key":"b","name":"Lint","state":"FAILED","updated_on":"2026-09-10T11:00:00+00:00"},
+		{"key":"c","name":"Test","state":"SUCCESSFUL","updated_on":"2026-09-10T11:00:00+00:00"},
+		{"key":"d","name":"Deploy","state":"INPROGRESS","updated_on":"2026-09-10T11:00:00+00:00"},
+		{"key":"b","name":"Lint","state":"SUCCESSFUL","updated_on":"2026-09-10T10:00:00+00:00"}
+	]}`)
+	want := "Changes requested by: cara\nChecks: 2 passed, 1 failed, 1 in progress\n\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("output missing %q in:\n%s", want, got)
+	}
+}
+
+func TestViewChecksOmitted(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"no statuses", 200, `{"values":[]}`},
+		{"forbidden", 403, `{"type":"error","error":{"message":"Access denied"}}`},
+		{"not found", 404, `{"type":"error","error":{"message":"Not found"}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := viewWithStatuses(t, tt.status, tt.body)
+			if strings.Contains(got, "Checks:") {
+				t.Errorf("Checks line should be omitted:\n%s", got)
+			}
+			if !strings.Contains(got, "View this pull request on Bitbucket:") {
+				t.Errorf("view output incomplete:\n%s", got)
+			}
+		})
+	}
+}
+
+func TestViewJSONSkipsStatuses(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := newViewOptions(t, srv)
+	opts.IO = ios
+	opts.JSON = true
+	if err := viewRun(t.Context(), opts); err != nil {
+		t.Fatalf("viewRun: %v", err)
+	}
+	if req := cmdtest.FindRequest(srv, "GET", "/statuses"); req != nil {
+		t.Errorf("statuses should not be fetched for --json")
 	}
 }

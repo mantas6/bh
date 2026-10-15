@@ -96,6 +96,29 @@ type DiffStat struct {
 	New          *DiffStatFile `json:"new"`
 }
 
+// Build status states reported by CommitStatus.State.
+const (
+	StatusSuccessful = "SUCCESSFUL"
+	StatusFailed     = "FAILED"
+	StatusInProgress = "INPROGRESS"
+	StatusStopped    = "STOPPED"
+)
+
+// CommitStatus is a build status (CI check) reported on a commit, as listed
+// for a pull request. State is one of StatusSuccessful, StatusFailed,
+// StatusInProgress or StatusStopped; Key identifies the reporting build and
+// stays the same across reruns.
+type CommitStatus struct {
+	Key         string    `json:"key"`
+	Name        string    `json:"name"`
+	State       string    `json:"state"`
+	URL         string    `json:"url"`
+	Description string    `json:"description"`
+	Refname     string    `json:"refname,omitempty"`
+	CreatedOn   time.Time `json:"created_on"`
+	UpdatedOn   time.Time `json:"updated_on"`
+}
+
 // PRRef is a pull request source/destination endpoint.
 type PRRef struct {
 	Branch     Branch      `json:"branch"`

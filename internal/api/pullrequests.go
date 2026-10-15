@@ -97,6 +97,12 @@ func (c *Client) PullRequestCommits(ctx context.Context, repo string, id int) ([
 	return PaginateAll[PRCommit](ctx, c, prPath(repo, id)+"/commits", nil, 0)
 }
 
+// PullRequestStatuses lists the build statuses reported for a pull
+// request, following every page.
+func (c *Client) PullRequestStatuses(ctx context.Context, repo string, id int) ([]CommitStatus, error) {
+	return PaginateAll[CommitStatus](ctx, c, prPath(repo, id)+"/statuses", nil, 0)
+}
+
 // CreatePRInput is the input for CreatePullRequest.
 type CreatePRInput struct {
 	Title             string

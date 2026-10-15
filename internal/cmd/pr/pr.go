@@ -1,5 +1,5 @@
 // Package pr implements the `bh pr` command group: list (ls), view, diff,
-// commits, create, edit, checkout, merge, approve, review, decline and
+// commits, checks, create, edit, checkout, merge, approve, review, decline and
 // comment, along with the shared PR argument resolver.
 package pr
 
@@ -23,6 +23,7 @@ func NewCmdPR(f *cmdutil.Factory) *cobra.Command {
 	cmd.AddCommand(NewCmdView(f, nil))
 	cmd.AddCommand(NewCmdDiff(f, nil))
 	cmd.AddCommand(NewCmdCommits(f, nil))
+	cmd.AddCommand(NewCmdChecks(f, nil))
 	cmd.AddCommand(NewCmdCreate(f, nil))
 	cmd.AddCommand(NewCmdEdit(f, nil))
 	cmd.AddCommand(NewCmdCheckout(f, nil))
@@ -43,6 +44,5 @@ func NewCmdPR(f *cmdutil.Factory) *cobra.Command {
 var unknownCommandHints = map[string]string{
 	"comments": "To list comments, run: bh pr comment list [<pr>], or bh pr view [<pr>] --comments",
 	"files":    "To list changed files, run: bh pr diff [<pr>] --name-only, or bh pr diff [<pr>] --stat for line counts",
-	"checks":   "bh pr checks is not supported yet; open the pull request with `bh pr view <pr> --web` to see build status",
 	"status":   "bh pr status is not supported; use `bh pr list --author @me` or `bh pr view` for the current branch",
 }

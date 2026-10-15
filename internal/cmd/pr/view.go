@@ -48,6 +48,9 @@ func NewCmdView(f *cmdutil.Factory, runF func(*ViewOptions) error) *cobra.Comman
 		Long: `View a pull request: a summary header, the description and, with
 --comments, the comment threads in the same format as ` + "`bh pr comment list`" + `.
 
+When builds have reported on the pull request, the header includes a line such
+as "Checks: 2 passed, 1 failed"; see ` + "`bh pr checks`" + ` for the details.
+
 Without --comments, a pull request that has comments gets a hint line
 pointing at ` + "`bh pr comment list`" + `, just above the final URL line.`,
 		Args: cmdutil.MaxArgs(1),
@@ -107,7 +110,26 @@ func viewRun(ctx context.Context, opts *ViewOptions) error {
 		threads = shared.BuildThreads(comments, opts.Unresolved)
 	}
 
-	return printPRView(opts, found.Repo, pr, threads)
+	checks, err := viewChecks(ctx, found)
+	if err != nil {
+		return err
+	}
+
+	return printPRView(opts, found.Repo, pr, threads, checks)
+}
+
+// viewChecks fetches the build statuses for the Checks line. They are
+// supplementary, so a failed request (a token without access to statuses,
+// say) just leaves the line out; only an interrupt is reported.
+func viewChecks(ctx context.Context, found *shared.FoundPR) ([]api.CommitStatus, error) {
+	statuses, err := found.Client.PullRequestStatuses(ctx, found.Repo.FullName(), found.Number)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, nil
+	}
+	return latestStatuses(statuses), nil
 }
 
 // commentListRef is the pull request argument to suggest for
@@ -121,8 +143,9 @@ func commentListRef(arg string, pr *api.PullRequest) string {
 }
 
 // printPRView renders the text view. threads is nil unless --comments was
-// given.
-func printPRView(opts *ViewOptions, baseRepo git.Repo, pr *api.PullRequest, threads *shared.Threads) error {
+// given; checks are the build statuses for the Checks line (omitted when
+// empty).
+func printPRView(opts *ViewOptions, baseRepo git.Repo, pr *api.PullRequest, threads *shared.Threads, checks []api.CommitStatus) error {
 	cs := opts.IO.ColorScheme()
 	out := opts.IO.Out
 
@@ -152,6 +175,10 @@ func printPRView(opts *ViewOptions, baseRepo git.Repo, pr *api.PullRequest, thre
 	}
 	if len(summary.changesRequestedBy) > 0 {
 		fmt.Fprintf(out, "Changes requested by: %s\n", strings.Join(summary.changesRequestedBy, ", "))
+	}
+
+	if len(checks) > 0 {
+		fmt.Fprintf(out, "Checks: %s\n", checksSummary(checks, cs))
 	}
 
 	if pr.Draft {
