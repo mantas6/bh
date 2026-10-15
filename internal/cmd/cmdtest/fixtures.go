@@ -51,8 +51,8 @@ func SamplePR() *api.PullRequest {
 		},
 		Reviewers: []api.User{User("bob")},
 		Participants: []api.Participant{
-			{User: api.User{DisplayName: "Bob", Nickname: "bob"}, Role: "REVIEWER", Approved: true, State: "approved"},
-			{User: api.User{DisplayName: "Cara", Nickname: "cara"}, Role: "REVIEWER", State: "changes_requested"},
+			{User: User("bob"), Role: "REVIEWER", Approved: true, State: "approved"},
+			{User: User("cara"), Role: "REVIEWER", State: "changes_requested"},
 		},
 		CommentCount: 2,
 		UpdatedOn:    time.Date(2026, 9, 10, 9, 0, 0, 0, time.UTC),

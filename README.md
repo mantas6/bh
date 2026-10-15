@@ -145,6 +145,27 @@ To list comments, run: bh pr comment list [<pr>]
 Run 'bh pr --help' for usage.
 ```
 
+`bh pr view` prints a summary header followed by the description. On
+Bitbucket anyone with access can approve, not only requested reviewers, so the
+approval count and the `Approved by:` / `Changes requested by:` lines cover
+every participant; `Reviewers:` lists only requested reviewers (`none` when
+there are none). The two participant lines are omitted when empty. The header
+reads `merged` / `declined` instead of `wants to merge` for closed pull
+requests.
+
+```console
+$ bh pr view 123
+Add feature #123
+OPEN • ada wants to merge feature into main • 2 approvals • 3 comments
+Reviewers: bob (approved ✓), cara (changes requested)
+Approved by: bob, dan
+Changes requested by: cara
+
+This does things.
+
+View this pull request on Bitbucket: https://bitbucket.org/myws/myrepo/pull-requests/123
+```
+
 ## Usage examples
 
 ```sh

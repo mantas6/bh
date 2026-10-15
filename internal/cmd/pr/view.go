@@ -86,22 +86,25 @@ func printPRView(opts *ViewOptions, baseRepo git.Repo, pr *api.PullRequest) erro
 		srcPrefix = pr.Source.Repository.FullName + ":"
 	}
 
-	comments := fmt.Sprintf("%d comment", pr.CommentCount)
-	if pr.CommentCount != 1 {
-		comments += "s"
-	}
+	summary := participantSummary(pr)
 
-	fmt.Fprintf(out, "%s • %s wants to merge %s%s into %s • %s\n",
+	fmt.Fprintf(out, "%s • %s %s %s%s into %s • %s • %s\n",
 		cs.StateColor(pr.State),
 		shared.PRAuthor(pr),
+		mergeVerb(pr.State),
 		srcPrefix,
 		pr.Source.Branch.Name,
 		pr.Destination.Branch.Name,
-		comments,
+		pluralize(len(summary.approvedBy), "approval"),
+		pluralize(pr.CommentCount, "comment"),
 	)
 
-	if reviewers := reviewerLines(pr, cs); reviewers != "" {
-		fmt.Fprintf(out, "Reviewers: %s\n", reviewers)
+	fmt.Fprintf(out, "Reviewers: %s\n", reviewerLine(summary.reviewers, cs))
+	if len(summary.approvedBy) > 0 {
+		fmt.Fprintf(out, "Approved by: %s\n", strings.Join(summary.approvedBy, ", "))
+	}
+	if len(summary.changesRequestedBy) > 0 {
+		fmt.Fprintf(out, "Changes requested by: %s\n", strings.Join(summary.changesRequestedBy, ", "))
 	}
 
 	if pr.Draft {
@@ -120,25 +123,116 @@ func printPRView(opts *ViewOptions, baseRepo git.Repo, pr *api.PullRequest) erro
 	return nil
 }
 
-// reviewerLines renders "name (status)" entries from the PR participants whose
-// role is REVIEWER.
-func reviewerLines(pr *api.PullRequest, cs *output.ColorScheme) string {
-	var parts []string
-	for _, p := range pr.Participants {
-		if !strings.EqualFold(p.Role, "REVIEWER") {
+// mergeVerb describes what the author did (or wants to do) with the source
+// branch, depending on the pull request state.
+func mergeVerb(state string) string {
+	switch strings.ToUpper(state) {
+	case "MERGED":
+		return "merged"
+	case "DECLINED":
+		return "declined"
+	default:
+		return "wants to merge"
+	}
+}
+
+type reviewStatus int
+
+const (
+	reviewPending reviewStatus = iota
+	reviewApproved
+	reviewChangesRequested
+)
+
+type reviewer struct {
+	name   string
+	status reviewStatus
+}
+
+// prParticipants is the review state of a pull request as shown by
+// `bh pr view`.
+type prParticipants struct {
+	// reviewers are the requested reviewers with their review status.
+	reviewers []reviewer
+	// approvedBy and changesRequestedBy cover every participant, whatever
+	// their role: on Bitbucket anyone with access can approve.
+	approvedBy         []string
+	changesRequestedBy []string
+}
+
+func participantStatus(p *api.Participant) reviewStatus {
+	switch {
+	case p.Approved || strings.EqualFold(p.State, "approved"):
+		return reviewApproved
+	case strings.EqualFold(p.State, "changes_requested"):
+		return reviewChangesRequested
+	default:
+		return reviewPending
+	}
+}
+
+// userKey identifies a user for de-duplication across the reviewers and
+// participants lists.
+func userKey(u *api.User) string {
+	switch {
+	case u.UUID != "":
+		return "uuid:" + u.UUID
+	case u.AccountID != "":
+		return "account:" + u.AccountID
+	default:
+		return "name:" + shared.UserName(u)
+	}
+}
+
+func participantSummary(pr *api.PullRequest) prParticipants {
+	var s prParticipants
+	seen := map[string]bool{}
+	for i := range pr.Participants {
+		p := &pr.Participants[i]
+		name := shared.UserName(&p.User)
+		status := participantStatus(p)
+		if strings.EqualFold(p.Role, "REVIEWER") {
+			s.reviewers = append(s.reviewers, reviewer{name: name, status: status})
+			seen[userKey(&p.User)] = true
+		}
+		switch status {
+		case reviewApproved:
+			s.approvedBy = append(s.approvedBy, name)
+		case reviewChangesRequested:
+			s.changesRequestedBy = append(s.changesRequestedBy, name)
+		}
+	}
+	// Requested reviewers who have not interacted yet may be missing from
+	// participants; list them as pending.
+	for i := range pr.Reviewers {
+		u := &pr.Reviewers[i]
+		if seen[userKey(u)] {
 			continue
 		}
-		name := shared.UserName(&p.User)
+		seen[userKey(u)] = true
+		s.reviewers = append(s.reviewers, reviewer{name: shared.UserName(u), status: reviewPending})
+	}
+	return s
+}
+
+// reviewerLine renders "name (status)" entries for the requested reviewers,
+// or "none".
+func reviewerLine(reviewers []reviewer, cs *output.ColorScheme) string {
+	if len(reviewers) == 0 {
+		return "none"
+	}
+	parts := make([]string, len(reviewers))
+	for i, r := range reviewers {
 		var status string
-		switch {
-		case p.Approved || strings.EqualFold(p.State, "approved"):
+		switch r.status {
+		case reviewApproved:
 			status = cs.Green("approved ✓")
-		case strings.EqualFold(p.State, "changes_requested"):
+		case reviewChangesRequested:
 			status = cs.Red("changes requested")
 		default:
 			status = cs.Yellow("pending")
 		}
-		parts = append(parts, fmt.Sprintf("%s (%s)", name, status))
+		parts[i] = fmt.Sprintf("%s (%s)", r.name, status)
 	}
 	return strings.Join(parts, ", ")
 }
