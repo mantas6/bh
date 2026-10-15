@@ -132,6 +132,19 @@ require it.
 
 Run `bh <command> --help` for the full flag list of any command.
 
+An unknown subcommand is a usage error: bh exits non-zero, suggests close
+matches, and for commands that do not exist (such as `bh pr comments` or
+`bh pr diff`) points at what to use instead:
+
+```console
+$ bh pr comments 123
+bh: unknown command "comments" for "bh pr"
+Did you mean "comment"?
+To list comments, run: bh pr comment list [<pr>]
+
+Run 'bh pr --help' for usage.
+```
+
 ## Usage examples
 
 ```sh

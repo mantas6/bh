@@ -8,7 +8,7 @@ import (
 // NewCmdComment creates the "pr comment" command group.
 func NewCmdComment(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "comment",
+		Use:   "comment <command>",
 		Short: "Manage pull request comments",
 	}
 
@@ -18,6 +18,8 @@ func NewCmdComment(f *cmdutil.Factory) *cobra.Command {
 	cmd.AddCommand(NewCmdDelete(f, nil))
 	cmd.AddCommand(NewCmdResolve(f, nil))
 	cmd.AddCommand(NewCmdReopen(f, nil))
+
+	cmdutil.SetupGroup(cmd, nil)
 
 	return cmd
 }

@@ -94,3 +94,96 @@ func TestRepoFlagFeedsFactory(t *testing.T) {
 		t.Errorf("RepoOverride = %q, want %q", seen, "ws/repo")
 	}
 }
+
+// Unknown subcommands of group commands are usage errors (non-zero exit), not
+// a silent help page with exit 0.
+func TestUnknownSubcommand(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"pr", "comments", "1"}, []string{`unknown command "comments" for "bh pr"`, `Did you mean "comment"?`, "bh pr comment list"}},
+		{[]string{"pr", "diff", "1"}, []string{`unknown command "diff" for "bh pr"`, "not supported yet"}},
+		{[]string{"pr", "commits", "1"}, []string{`unknown command "commits" for "bh pr"`, "not supported yet"}},
+		{[]string{"pr", "checks"}, []string{`unknown command "checks" for "bh pr"`, "not supported yet"}},
+		{[]string{"pr", "files", "1"}, []string{`unknown command "files" for "bh pr"`, "not supported yet"}},
+		{[]string{"pr", "status"}, []string{`unknown command "status" for "bh pr"`, "bh pr list --author @me"}},
+		{[]string{"pr", "-R", "ws/repo", "veiw", "1"}, []string{`unknown command "veiw" for "bh pr"`, `Did you mean "view"?`}},
+		{[]string{"pr", "comment", "lst", "1"}, []string{`unknown command "lst" for "bh pr comment"`, `Did you mean "list"?`}},
+		{[]string{"auth", "stat"}, []string{`unknown command "stat" for "bh auth"`, `Did you mean "status"?`}},
+		{[]string{"prr", "list"}, []string{`unknown command "prr" for "bh"`, `Did you mean "pr"?`}},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			t.Parallel()
+			ios, _, out, errOut := cmdutil.TestIOStreams()
+			f := &cmdutil.Factory{IOStreams: ios}
+			cmd := NewCmdRoot(f)
+			cmd.SetArgs(tt.args)
+			ran, err := cmd.ExecuteContextC(t.Context())
+			cmdtest.AssertFlagError(t, err, tt.want[0])
+			for _, w := range tt.want[1:] {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("error = %q, want it to contain %q", err, w)
+				}
+			}
+			if out.Len() != 0 {
+				t.Errorf("stdout = %q, want empty (no help page)", out.String())
+			}
+			if code := HandleError(errOut, ran, err); code == ExitOK {
+				t.Errorf("exit code = %d, want non-zero", code)
+			}
+			if !strings.HasPrefix(errOut.String(), "bh: "+tt.want[0]) {
+				t.Errorf("stderr = %q, want it to start with %q", errOut.String(), "bh: "+tt.want[0])
+			}
+		})
+	}
+}
+
+// Group commands still print their help (exit 0) without arguments, with
+// --help, or via `help`.
+func TestGroupHelp(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"pr"}, "Manage pull requests"},
+		{[]string{"pr", "--help"}, "Manage pull requests"},
+		{[]string{"pr", "help", "comment"}, "Manage pull request comments"},
+		{[]string{"pr", "comment"}, "Manage pull request comments"},
+		{[]string{"auth"}, "Authenticate bh with Bitbucket"},
+		{[]string{}, "Work with Bitbucket Cloud pull requests"},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			t.Parallel()
+			out, _, err := cmdtest.RunCommand(t, NewCmdRoot(cmdtest.NewFactory()), tt.args...)
+			if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if !strings.Contains(out, tt.want) {
+				t.Errorf("help output = %q, want it to contain %q", out, tt.want)
+			}
+		})
+	}
+}
+
+// Real subcommands and aliases still dispatch normally.
+func TestValidSubcommandsUnaffected(t *testing.T) {
+	t.Parallel()
+	errStop := errors.New("stop")
+	for _, args := range [][]string{{"pr", "list"}, {"pr", "ls"}, {"pr", "view", "1"}, {"pr", "comment", "list", "1"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			t.Parallel()
+			f := cmdtest.NewFactory()
+			f.BaseRepo = func(context.Context) (git.Repo, *git.ResolvedRemote, error) {
+				return git.Repo{}, nil, errStop
+			}
+			if _, _, err := cmdtest.RunCommand(t, NewCmdRoot(f), args...); !errors.Is(err, errStop) {
+				t.Fatalf("error = %v, want %v (command should have run)", err, errStop)
+			}
+		})
+	}
+}

@@ -42,5 +42,7 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	cmd.AddCommand(pr.NewCmdPR(f))
 	cmd.AddCommand(version.NewCmdVersion(f))
 
+	cmdutil.SetupGroup(cmd, nil)
+
 	return cmd
 }
