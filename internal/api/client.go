@@ -343,6 +343,21 @@ func backoff(attempt int) time.Duration {
 type page struct {
 	Values []json.RawMessage `json:"values"`
 	Next   string            `json:"next"`
+	// Size is the total number of values across all pages. Bitbucket only
+	// reports it on some endpoints, so it is nil when absent.
+	Size *int `json:"size"`
+}
+
+// PageInfo describes what a paginated fetch learned about the values it did
+// not return.
+type PageInfo struct {
+	// More is true when the API has values beyond those yielded: the limit
+	// was reached with values left on the page, a `next` link, or a
+	// reported total above the number yielded.
+	More bool
+	// Total is the total number of values the API reported (`size`), or -1
+	// when it did not report one.
+	Total int
 }
 
 // Paginate issues GET requests starting at path, invoking each for every raw
@@ -350,6 +365,16 @@ type page struct {
 // yielded. limit <= 0 means unlimited. pagelen defaults to min(limit,50)/50.
 // query is only sent with the first request: `next` links already carry it.
 func (c *Client) Paginate(ctx context.Context, path string, query url.Values, limit int, each func(raw json.RawMessage) error) error {
+	_, err := c.PaginateInfo(ctx, path, query, limit, each)
+	return err
+}
+
+// PaginateInfo is Paginate that also reports whether the limit cut the
+// results short and the total the API reported. It never fetches a page
+// beyond the one where the limit was reached.
+func (c *Client) PaginateInfo(ctx context.Context, path string, query url.Values, limit int, each func(raw json.RawMessage) error) (PageInfo, error) {
+	info := PageInfo{Total: -1}
+
 	// Copy so we don't mutate the caller's values.
 	q := url.Values{}
 	for k, v := range query {
@@ -370,33 +395,44 @@ func (c *Client) Paginate(ctx context.Context, path string, query url.Values, li
 	for next != "" {
 		var p page
 		if _, _, err := c.Do(ctx, http.MethodGet, next, query, nil, &p); err != nil {
-			return err
+			return info, err
 		}
 		query = nil
 		seen[next] = true
-		for _, raw := range p.Values {
+		if p.Size != nil {
+			info.Total = *p.Size
+		}
+		for i, raw := range p.Values {
 			if err := each(raw); err != nil {
-				return err
+				return info, err
 			}
 			count++
 			if limit > 0 && count >= limit {
-				return nil
+				info.More = i < len(p.Values)-1 || p.Next != "" || info.Total > count
+				return info, nil
 			}
 		}
 		if p.Next != "" && seen[p.Next] {
-			return fmt.Errorf("pagination loop: next link %s was already fetched", p.Next)
+			return info, fmt.Errorf("pagination loop: next link %s was already fetched", p.Next)
 		}
 		next = p.Next
 	}
-	return nil
+	return info, nil
 }
 
 // PaginateAll collects up to limit decoded values of type T from a paginated
 // endpoint. limit <= 0 means unlimited. An empty collection yields a non-nil
 // empty slice so it encodes as `[]` rather than `null`.
 func PaginateAll[T any](ctx context.Context, c *Client, path string, query url.Values, limit int) ([]T, error) {
+	out, _, err := PaginateAllInfo[T](ctx, c, path, query, limit)
+	return out, err
+}
+
+// PaginateAllInfo is PaginateAll that also returns the PageInfo, so callers
+// can tell the user when limit truncated the results.
+func PaginateAllInfo[T any](ctx context.Context, c *Client, path string, query url.Values, limit int) ([]T, PageInfo, error) {
 	out := []T{}
-	err := c.Paginate(ctx, path, query, limit, func(raw json.RawMessage) error {
+	info, err := c.PaginateInfo(ctx, path, query, limit, func(raw json.RawMessage) error {
 		var v T
 		if err := json.Unmarshal(raw, &v); err != nil {
 			return fmt.Errorf("decoding page value: %w", err)
@@ -405,9 +441,9 @@ func PaginateAll[T any](ctx context.Context, c *Client, path string, query url.V
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, info, err
 	}
-	return out, nil
+	return out, info, nil
 }
 
 // repoPath returns the escaped /repositories/{workspace}/{repo} path for

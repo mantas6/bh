@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
@@ -535,5 +536,46 @@ func TestViewJSONSkipsStatuses(t *testing.T) {
 	}
 	if req := cmdtest.FindRequest(srv, "GET", "/statuses"); req != nil {
 		t.Errorf("statuses should not be fetched for --json")
+	}
+}
+
+func TestViewRefsLine(t *testing.T) {
+	t.Parallel()
+	pr := cmdtest.SamplePR()
+	pr.Source.Commit = &api.Commit{Hash: "0123456789abcdef0123"}
+	pr.Destination.Commit = &api.Commit{Hash: "fedcba9876543210fedc"}
+
+	got := renderView(t, pr)
+	updated := pr.UpdatedOn.Local().Format(time.RFC3339)
+	want := "• 1 approval • 2 comments\nHead: 0123456789ab · Base: main fedcba987654 · Updated: " + updated + "\nReviewers:"
+	if !strings.Contains(got, want) {
+		t.Errorf("output missing %q in:\n%s", want, got)
+	}
+}
+
+func TestViewRefsLineWithoutCommits(t *testing.T) {
+	t.Parallel()
+	pr := cmdtest.SamplePR()
+	got := renderView(t, pr)
+	want := "\nBase: main · Updated: " + pr.UpdatedOn.Local().Format(time.RFC3339) + "\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("output missing %q in:\n%s", want, got)
+	}
+	if strings.Contains(got, "Head:") {
+		t.Errorf("Head should be omitted without a source commit:\n%s", got)
+	}
+}
+
+func TestRefsLineTTYRelative(t *testing.T) {
+	t.Parallel()
+	pr := cmdtest.SamplePR()
+	pr.Source.Commit = &api.Commit{Hash: "abc"}
+	want := "Head: abc · Base: main · Updated: " + pr.UpdatedOn.Local().Format(time.RFC3339) + " (about 3 hours ago)"
+	if got := refsLine(pr, true, cmdtest.FixedNow()); got != want {
+		t.Errorf("refsLine = %q, want %q", got, want)
+	}
+	pr.UpdatedOn = time.Time{}
+	if got := refsLine(pr, false, cmdtest.FixedNow()); got != "Head: abc · Base: main" {
+		t.Errorf("refsLine without update time = %q", got)
 	}
 }

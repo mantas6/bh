@@ -38,6 +38,13 @@ type ListPROptions struct {
 
 // ListPullRequests lists pull requests for repo ("ws/repo").
 func (c *Client) ListPullRequests(ctx context.Context, repo string, opts ListPROptions) ([]PullRequest, error) {
+	prs, _, err := c.ListPullRequestsInfo(ctx, repo, opts)
+	return prs, err
+}
+
+// ListPullRequestsInfo is ListPullRequests that also returns the PageInfo,
+// telling whether opts.Limit cut the list short.
+func (c *Client) ListPullRequestsInfo(ctx context.Context, repo string, opts ListPROptions) ([]PullRequest, PageInfo, error) {
 	q := url.Values{}
 	for _, s := range opts.State {
 		if s != "" {
@@ -50,7 +57,7 @@ func (c *Client) ListPullRequests(ctx context.Context, repo string, opts ListPRO
 	if opts.Sort != "" {
 		q.Set("sort", opts.Sort)
 	}
-	return PaginateAll[PullRequest](ctx, c, prsPath(repo), q, opts.Limit)
+	return PaginateAllInfo[PullRequest](ctx, c, prsPath(repo), q, opts.Limit)
 }
 
 // PullRequest fetches a single pull request by id.

@@ -696,6 +696,56 @@ func TestPaginatePagelen(t *testing.T) {
 	}
 }
 
+func TestPaginateInfo(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		limit     int
+		page      string
+		wantN     int
+		wantMore  bool
+		wantTotal int
+	}{
+		{"unlimited", 0, `{"values":[{"id":1},{"id":2}]}`, 2, false, -1},
+		{"under limit", 5, `{"values":[{"id":1},{"id":2}],"size":2}`, 2, false, 2},
+		{"exactly limit", 2, `{"values":[{"id":1},{"id":2}]}`, 2, false, -1},
+		{"values left on page", 1, `{"values":[{"id":1},{"id":2}]}`, 1, true, -1},
+		{"next link", 2, `{"values":[{"id":1},{"id":2}],"next":"https://example.invalid/items?page=2"}`, 2, true, -1},
+		{"size above count", 2, `{"values":[{"id":1},{"id":2}],"size":9}`, 2, true, 9},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := apitest.New(t)
+			srv.Handle(http.MethodGet, "/items", 200, tt.page)
+			var n int
+			info, err := srv.APIClient().PaginateInfo(t.Context(), "/items", nil, tt.limit, func(json.RawMessage) error { n++; return nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n != tt.wantN || info.More != tt.wantMore || info.Total != tt.wantTotal {
+				t.Errorf("n=%d info=%+v, want n=%d more=%v total=%d", n, info, tt.wantN, tt.wantMore, tt.wantTotal)
+			}
+			if got := len(srv.Requests()); got != 1 {
+				t.Errorf("requests = %d, want 1", got)
+			}
+		})
+	}
+}
+
+func TestListPullRequestsInfo(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle(http.MethodGet, "/repositories/ws/repo/pullrequests", 200, `{"values":[{"id":1},{"id":2}],"size":40,"next":"https://example.invalid/p2"}`)
+	prs, info, err := srv.APIClient().ListPullRequestsInfo(t.Context(), "ws/repo", api.ListPROptions{Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prs) != 2 || !info.More || info.Total != 40 {
+		t.Errorf("prs=%d info=%+v", len(prs), info)
+	}
+}
+
 func TestPaginateLoopGuard(t *testing.T) {
 	t.Parallel()
 	srv := apitest.New(t)

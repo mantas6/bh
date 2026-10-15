@@ -164,13 +164,32 @@ $ bh pr comments 123 2>&1 | cat
 bh: unknown command "comments" for "bh pr"; Did you mean "comment" or "commits"?; To list comments, run: bh pr comment list [<pr>], or bh pr view [<pr>] --comments (run 'bh pr --help' for usage)
 ```
 
+`bh pr list` prints one row per pull request: number, title,
+`source → destination` branches, author, state and last update. On a terminal the update time is relative; otherwise the fields
+are tab-separated and the time is an RFC 3339 timestamp. `--base` (`-B`) and
+`--head` (`-H`) filter by destination and source branch, and combine with
+`--state`, `--author` and `--search`. When more pull requests match than
+`--limit` (`-L`, default 30) allows, a notice such as
+`Showing 30 of 142 results; use --limit to see more` is printed on standard
+error (the total is included when Bitbucket reports it); `--json` output never
+gets the notice.
+
+```console
+$ bh pr list --base dev
+#934  Add login form   ft/login → dev   ada   OPEN  about 3 hours ago
+#930  Fix footer       ft/footer → dev  bob   OPEN  2 days ago
+```
+
 `bh pr view` prints a summary header followed by the description. On
 Bitbucket anyone with access can approve, not only requested reviewers, so the
 approval count and the `Approved by:` / `Changes requested by:` lines cover
 every participant; `Reviewers:` lists only requested reviewers (`none` when
 there are none). The two participant lines are omitted when empty. The header
 reads `merged` / `declined` instead of `wants to merge` for closed pull
-requests. When builds have reported on the pull request, a `Checks:` line
+requests. The line after it shows the source (`Head:`) and destination
+(`Base:`) commits as short hashes, the base branch, and the last update time as
+an RFC 3339 timestamp in the local time zone (followed by the relative time on
+a terminal); a hash Bitbucket did not report is left out. When builds have reported on the pull request, a `Checks:` line
 counts their latest states (see `bh pr checks`); it is left out when there are
 none or the statuses cannot be fetched. `--json` prints only the pull request
 object and does not fetch build statuses.
@@ -179,6 +198,7 @@ object and does not fetch build statuses.
 $ bh pr view 123
 Add feature #123
 OPEN • ada wants to merge feature into main • 2 approvals • 3 comments
+Head: 0123456789ab · Base: main fedcba987654 · Updated: 2026-09-10T11:00:00+02:00
 Reviewers: bob (approved ✓), cara (changes requested)
 Approved by: bob, dan
 Changes requested by: cara
@@ -203,6 +223,7 @@ their parent. `--unresolved` shows only unresolved threads and implies
 $ bh pr view 123 --comments
 Add feature #123
 OPEN • ada wants to merge feature into main • 2 approvals • 3 comments
+Head: 0123456789ab · Base: main fedcba987654 · Updated: 2026-09-10T11:00:00+02:00
 Reviewers: bob (approved ✓), cara (changes requested)
 Approved by: bob, dan
 Changes requested by: cara
@@ -269,6 +290,10 @@ bh pr list
 
 # List everything by a given author
 bh pr list --state all --author @me
+
+# List pull requests into dev, or the one(s) from a given branch
+bh pr list --base dev
+bh pr list --state all --head ft/login
 
 # View the pull request for the current branch
 bh pr view

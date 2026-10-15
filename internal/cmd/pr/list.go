@@ -26,6 +26,8 @@ type ListOptions struct {
 	Limit  int
 	Author string
 	Search string
+	Base   string
+	Head   string
 	JSON   bool
 	Web    bool
 }
@@ -41,8 +43,17 @@ func NewCmdList(f *cmdutil.Factory, runF func(*ListOptions) error) *cobra.Comman
 	}
 
 	cmd := &cobra.Command{
-		Use:     "list",
-		Short:   "List pull requests",
+		Use:   "list",
+		Short: "List pull requests",
+		Long: `List pull requests in the repository.
+
+Each row shows the number, title, ` + "`source → destination`" + ` branches, author,
+state and when the pull request was last updated. When stdout is not a
+terminal the fields are tab-separated and the update time is an absolute
+RFC 3339 timestamp.
+
+When more pull requests match than --limit allows, a notice saying so is
+printed on stderr (not with --json).`,
 		Aliases: []string{"ls"},
 		Args:    cmdutil.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -60,6 +71,8 @@ func NewCmdList(f *cmdutil.Factory, runF func(*ListOptions) error) *cobra.Comman
 	cmd.Flags().IntVarP(&opts.Limit, "limit", "L", 30, "Maximum number of pull requests to fetch")
 	cmd.Flags().StringVar(&opts.Author, "author", "", "Filter by author (@me or a nickname)")
 	cmd.Flags().StringVarP(&opts.Search, "search", "s", "", "Search pull requests with a query")
+	cmd.Flags().StringVarP(&opts.Base, "base", "B", "", "Filter by destination branch")
+	cmd.Flags().StringVarP(&opts.Head, "head", "H", "", "Filter by source branch")
 	cmd.Flags().BoolVar(&opts.JSON, "json", false, "Output pull requests as JSON")
 	cmd.Flags().BoolVar(&opts.Web, "web", false, "List pull requests in the web browser")
 
@@ -94,6 +107,12 @@ func listRun(ctx context.Context, opts *ListOptions) error {
 		}
 		qparts = append(qparts, aq)
 	}
+	if opts.Base != "" {
+		qparts = append(qparts, "destination.branch.name="+api.QuoteBBQL(opts.Base))
+	}
+	if opts.Head != "" {
+		qparts = append(qparts, "source.branch.name="+api.QuoteBBQL(opts.Head))
+	}
 	if opts.Search != "" {
 		// The search is raw BBQL; parenthesise it so an OR inside it cannot
 		// escape the other filters.
@@ -104,7 +123,7 @@ func listRun(ctx context.Context, opts *ListOptions) error {
 		}
 	}
 
-	prs, err := client.ListPullRequests(ctx, repo.FullName(), api.ListPROptions{
+	prs, info, err := client.ListPullRequestsInfo(ctx, repo.FullName(), api.ListPROptions{
 		State: states,
 		Query: strings.Join(qparts, " AND "),
 		Limit: opts.Limit,
@@ -143,16 +162,28 @@ func listRun(ctx context.Context, opts *ListOptions) error {
 		if isTTY {
 			state = cs.StateColor(pr.State)
 		}
+		updated := pr.UpdatedOn.Format(time.RFC3339)
+		if isTTY {
+			updated = output.RelativeTime(pr.UpdatedOn, now())
+		}
 		table.AddRow(
 			fmt.Sprintf("#%d", pr.ID),
 			pr.Title,
-			pr.Source.Branch.Name,
+			branchPair(&pr),
 			shared.PRAuthor(&pr),
 			state,
-			output.RelativeTime(pr.UpdatedOn, now()),
+			updated,
 		)
 	}
-	return table.Flush()
+	if err := table.Flush(); err != nil {
+		return err
+	}
+
+	// On stderr so it never mixes with the rows.
+	if info.More {
+		fmt.Fprintln(opts.IO.ErrOut, truncationNotice(len(prs), info.Total))
+	}
+	return nil
 }
 
 // mapStates converts a --state value into the API's uppercase state list.
@@ -196,4 +227,18 @@ func listHeader(n int, state string) string {
 		adj = s + " "
 	}
 	return fmt.Sprintf("Showing %d %s%s", n, adj, noun)
+}
+
+// branchPair renders the "source → destination" branch column.
+func branchPair(pr *api.PullRequest) string {
+	return pr.Source.Branch.Name + " → " + pr.Destination.Branch.Name
+}
+
+// truncationNotice tells the user that --limit cut the list short. total is
+// the number of matches the API reported, or negative when unknown.
+func truncationNotice(shown, total int) string {
+	if total > shown {
+		return fmt.Sprintf("Showing %d of %s; use --limit to see more", shown, pluralize(total, "result"))
+	}
+	return fmt.Sprintf("Showing %s; use --limit to see more", pluralize(shown, "result"))
 }

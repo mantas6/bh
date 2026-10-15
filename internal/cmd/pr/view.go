@@ -169,6 +169,12 @@ func printPRView(opts *ViewOptions, baseRepo git.Repo, pr *api.PullRequest, thre
 		pluralize(pr.CommentCount, "comment"),
 	)
 
+	now := time.Now
+	if opts.Now != nil {
+		now = opts.Now
+	}
+	fmt.Fprintln(out, refsLine(pr, opts.IO.IsStdoutTTY(), now()))
+
 	fmt.Fprintf(out, "Reviewers: %s\n", reviewerLine(summary.reviewers, cs))
 	if len(summary.approvedBy) > 0 {
 		fmt.Fprintf(out, "Approved by: %s\n", strings.Join(summary.approvedBy, ", "))
@@ -206,6 +212,29 @@ func printPRView(opts *ViewOptions, baseRepo git.Repo, pr *api.PullRequest, thre
 
 	fmt.Fprintf(out, "View this pull request on Bitbucket: %s\n", pr.Links.HTML.Href)
 	return nil
+}
+
+// refsLine renders "Head: <hash> · Base: <branch> <hash> · Updated: <time>",
+// leaving out whatever the API did not report. The time is RFC 3339 in the
+// local zone, followed on a terminal by the relative time.
+func refsLine(pr *api.PullRequest, isTTY bool, now time.Time) string {
+	var parts []string
+	if pr.Source.Commit != nil && pr.Source.Commit.Hash != "" {
+		parts = append(parts, "Head: "+shortHash(pr.Source.Commit.Hash))
+	}
+	base := "Base: " + pr.Destination.Branch.Name
+	if pr.Destination.Commit != nil && pr.Destination.Commit.Hash != "" {
+		base += " " + shortHash(pr.Destination.Commit.Hash)
+	}
+	parts = append(parts, base)
+	if !pr.UpdatedOn.IsZero() {
+		updated := "Updated: " + pr.UpdatedOn.Local().Format(time.RFC3339)
+		if isTTY {
+			updated += " (" + output.RelativeTime(pr.UpdatedOn, now) + ")"
+		}
+		parts = append(parts, updated)
+	}
+	return strings.Join(parts, " · ")
 }
 
 // printViewComments prints the --comments section: a heading, then the

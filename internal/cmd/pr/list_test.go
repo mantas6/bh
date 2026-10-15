@@ -34,7 +34,7 @@ func TestListNonTTY(t *testing.T) {
 	}
 
 	got := out.String()
-	if !strings.Contains(got, "#123\tAdd feature\tfeature\tada\tOPEN\tabout 3 hours ago") {
+	if !strings.Contains(got, "#123\tAdd feature\tfeature → main\tada\tOPEN\t2026-09-10T09:00:00Z\n") {
 		t.Errorf("row missing/mismatched: %q", got)
 	}
 	if strings.Contains(got, "Showing") {
@@ -59,6 +59,9 @@ func TestListTTYHeader(t *testing.T) {
 	got := out.String()
 	if !strings.Contains(got, "Showing 1 open pull request in myws/myrepo") {
 		t.Errorf("header missing: %q", got)
+	}
+	if !strings.Contains(got, "feature → main") || !strings.Contains(got, "about 3 hours ago") {
+		t.Errorf("TTY row should show branches and relative time: %q", got)
 	}
 }
 
@@ -255,5 +258,101 @@ func TestListFlagParsing(t *testing.T) {
 	}
 	if captured.State != "merged" || captured.Limit != 5 || captured.Author != "@me" || captured.Search != "wip" || !captured.JSON {
 		t.Errorf("parsed = %+v", captured)
+	}
+
+	if _, _, err := cmdtest.RunCommand(t, cmd, "-B", "dev", "-H", "ft/x"); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if captured.Base != "dev" || captured.Head != "ft/x" {
+		t.Errorf("parsed = %+v", captured)
+	}
+}
+
+func TestListBaseHeadFilters(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, cmdtest.ValuesPage([]api.PullRequest{}))
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := newListOptions(srv)
+	opts.IO = ios
+	opts.Base = "dev"
+	opts.Head = `ft/"x"`
+	opts.Search = `title ~ "a" OR title ~ "b"`
+
+	if err := listRun(t.Context(), opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	want := `destination.branch.name="dev" AND source.branch.name="ft/\"x\"" AND (title ~ "a" OR title ~ "b")`
+	if q := cmdtest.RequireRequest(t, srv, "GET", "/pullrequests").Query.Get("q"); q != want {
+		t.Errorf("q = %q, want %q", q, want)
+	}
+}
+
+func TestListTruncationNotice(t *testing.T) {
+	t.Parallel()
+	pr1, pr2 := *cmdtest.SamplePR(), *cmdtest.SamplePR()
+	pr2.ID = 124
+	tests := []struct {
+		name  string
+		limit int
+		page  map[string]any
+		json  bool
+		want  string
+	}{
+		{
+			name:  "values left on page",
+			limit: 1,
+			page:  map[string]any{"values": []api.PullRequest{pr1, pr2}},
+			want:  "Showing 1 result; use --limit to see more\n",
+		},
+		{
+			name:  "next link with size",
+			limit: 2,
+			page:  map[string]any{"values": []api.PullRequest{pr1, pr2}, "next": "https://example.invalid/next", "size": 7},
+			want:  "Showing 2 of 7 results; use --limit to see more\n",
+		},
+		{
+			name:  "exactly limit",
+			limit: 2,
+			page:  map[string]any{"values": []api.PullRequest{pr1, pr2}, "size": 2},
+		},
+		{
+			name:  "under limit",
+			limit: 30,
+			page:  map[string]any{"values": []api.PullRequest{pr1, pr2}},
+		},
+		{
+			name:  "json stays clean",
+			limit: 1,
+			page:  map[string]any{"values": []api.PullRequest{pr1, pr2}, "size": 2},
+			json:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := apitest.New(t)
+			srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, tt.page)
+
+			ios, _, out, errOut := cmdutil.TestIOStreams()
+			opts := newListOptions(srv)
+			opts.IO = ios
+			opts.Limit = tt.limit
+			opts.JSON = tt.json
+
+			if err := listRun(t.Context(), opts); err != nil {
+				t.Fatalf("listRun: %v", err)
+			}
+			if got := errOut.String(); got != tt.want {
+				t.Errorf("stderr = %q, want %q", got, tt.want)
+			}
+			if strings.Contains(out.String(), "--limit") {
+				t.Errorf("notice leaked to stdout: %q", out.String())
+			}
+			if n := len(srv.Requests()); n != 1 {
+				t.Errorf("requests = %d, want 1 (no extra page fetched)", n)
+			}
+		})
 	}
 }
