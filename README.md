@@ -151,6 +151,16 @@ To list comments, run: bh pr comment list [<pr>]
 Run 'bh pr --help' for usage.
 ```
 
+That layout is used when standard error is a terminal. When it is not (piped,
+redirected, or captured by a script or AI agent), every error is printed as a
+single line, with the hint and usage pointer folded in, so `2>&1 | tail -1`
+still shows the whole message:
+
+```console
+$ bh pr comments 123 2>&1 | cat
+bh: unknown command "comments" for "bh pr"; Did you mean "comment"?; To list comments, run: bh pr comment list [<pr>] (run 'bh pr --help' for usage)
+```
+
 `bh pr view` prints a summary header followed by the description. On
 Bitbucket anyone with access can approve, not only requested reviewers, so the
 approval count and the `Approved by:` / `Changes requested by:` lines cover

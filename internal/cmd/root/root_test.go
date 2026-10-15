@@ -131,11 +131,21 @@ func TestUnknownSubcommand(t *testing.T) {
 			if out.Len() != 0 {
 				t.Errorf("stdout = %q, want empty (no help page)", out.String())
 			}
-			if code := HandleError(errOut, ran, err); code == ExitOK {
+			if code := HandleError(ios, ran, err); code == ExitOK {
 				t.Errorf("exit code = %d, want non-zero", code)
 			}
-			if !strings.HasPrefix(errOut.String(), "bh: "+tt.want[0]) {
-				t.Errorf("stderr = %q, want it to start with %q", errOut.String(), "bh: "+tt.want[0])
+			// stderr is not a TTY here: everything must be on one line.
+			stderr := errOut.String()
+			if !strings.HasPrefix(stderr, "bh: "+tt.want[0]) {
+				t.Errorf("stderr = %q, want it to start with %q", stderr, "bh: "+tt.want[0])
+			}
+			if n := strings.Count(stderr, "\n"); n != 1 || !strings.HasSuffix(stderr, " --help' for usage)\n") {
+				t.Errorf("stderr = %q, want one line ending with the --help pointer", stderr)
+			}
+			for _, w := range tt.want[1:] {
+				if !strings.Contains(stderr, w) {
+					t.Errorf("stderr = %q, want it to contain %q", stderr, w)
+				}
 			}
 		})
 	}

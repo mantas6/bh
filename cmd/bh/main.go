@@ -33,5 +33,5 @@ func run() int {
 		// fail before the context error surfaces; report an interrupt.
 		err = errors.Join(ctx.Err(), err)
 	}
-	return root.HandleError(f.IOStreams.ErrOut, cmd, err)
+	return root.HandleError(f.IOStreams, cmd, err)
 }
