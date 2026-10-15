@@ -195,3 +195,28 @@ func TestValidSubcommandsUnaffected(t *testing.T) {
 		})
 	}
 }
+
+// Every command with --json accepts a space-separated field list, which
+// NormalizeJSONArgs (called by main) turns into --json=<fields>.
+func TestNormalizeJSONArgsCommands(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"pr", "view", "5", "--json", "id,source.branch.name"}, []string{"pr", "view", "5", "--json=id,source.branch.name"}},
+		{[]string{"pr", "view", "--json", "5"}, []string{"pr", "view", "--json", "5"}},
+		{[]string{"pr", "view", "--json", "feature/x"}, []string{"pr", "view", "--json", "feature/x"}},
+		{[]string{"pr", "list", "--json", "id,title", "-q", ".[].id"}, []string{"pr", "list", "--json=id,title", "-q", ".[].id"}},
+		{[]string{"pr", "commits", "--json", "hash"}, []string{"pr", "commits", "--json=hash"}},
+		{[]string{"pr", "checks", "-R", "a/b", "--json", "key,state"}, []string{"pr", "checks", "-R", "a/b", "--json=key,state"}},
+		{[]string{"pr", "comment", "list", "1", "--json", "id,resolved,thread_id"}, []string{"pr", "comment", "list", "1", "--json=id,resolved,thread_id"}},
+		{[]string{"pr", "create", "--json", "id"}, []string{"pr", "create", "--json", "id"}},
+	}
+	root := NewCmdRoot(cmdtest.NewFactory())
+	for _, tt := range tests {
+		if got := cmdutil.NormalizeJSONArgs(root, tt.args); strings.Join(got, " ") != strings.Join(tt.want, " ") {
+			t.Errorf("NormalizeJSONArgs(%q) = %q, want %q", tt.args, got, tt.want)
+		}
+	}
+}

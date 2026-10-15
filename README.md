@@ -117,7 +117,7 @@ The following remote URL forms are recognized:
 | `bh pr view` | View a pull request |
 | `bh pr diff` | View changes in a pull request (`--name-only`, `--stat`, `--web`) |
 | `bh pr commits` | List the commits of a pull request |
-| `bh pr checks` | Show build status checks of a pull request (`--watch`, `--json`) |
+| `bh pr checks` | Show build status checks of a pull request (`--watch`) |
 | `bh pr create` | Create a pull request |
 | `bh pr edit` | Edit a pull request |
 | `bh pr checkout` | Check out a pull request in git |
@@ -132,6 +132,9 @@ The following remote URL forms are recognized:
 | `bh pr comment resolve` | Resolve a pull request comment thread |
 | `bh pr comment reopen` | Reopen (unresolve) a pull request comment thread |
 | `bh version` | Show the bh version (also `bh --version`) |
+
+`pr list`, `pr view`, `pr commits`, `pr checks` and `pr comment list` take
+`--json[=fields]` and `--jq <expression>`; see [JSON output](#json-output).
 
 A pull request argument accepts a number (`123` or `#123`), a Bitbucket pull
 request URL, or a branch name (the open pull request whose source branch it
@@ -310,7 +313,46 @@ fields:
 
 ```sh
 # Ids of the unresolved threads
-bh pr comment list 123 --json | jq '[.[] | select((.is_reply or .resolved) | not) | .id]'
+bh pr comment list 123 --json --jq '[.[] | select((.is_reply or .resolved) | not) | .id]'
+```
+
+#### Selecting fields: `--json <fields>`
+
+`--json` alone prints every field. Give it a comma-separated list to keep only
+those fields, in the order given; dotted paths reach into nested objects and
+apply to every element of a list (`reviewers.nickname`). For list commands
+the selection applies to each item. Selected fields that are absent from an
+object (see above) are left out; a path through a `null` value keeps the
+`null`. An unknown field is an error that lists the available fields.
+
+```sh
+bh pr view 123 --json=id,title,state,source.branch.name
+bh pr list --json id,title,author.nickname
+bh pr comment list 123 --json id,thread_id,resolved,inline.path
+```
+
+`--json=<fields>` always works. The space-separated form `--json <fields>` is
+recognized when the next argument is a field list for that command (all its
+items are fields, it contains a comma, or it starts with a known field name);
+otherwise it is taken as the command's argument, so `bh pr view --json 123`
+still means "pull request 123 as JSON". Put a pull request argument that
+could be mistaken for a field name (such as a branch called `state`) before
+`--json`, or use `--json=<fields>`.
+
+#### Filtering with `--jq`
+
+`--jq <expression>` (`-q`) filters the JSON with a built-in
+[jq](https://jqlang.org/manual/) implementation
+([gojq](https://github.com/itchyny/gojq)), so `jq` need not be installed. It
+requires `--json` and runs after any field selection. String results are
+printed raw (like `jq -r`), other values as JSON, one result per line, compact
+when piped and indented on a terminal. An invalid expression is a usage error;
+an error while evaluating it is reported after the results printed so far.
+
+```sh
+bh pr view 123 --json --jq .source.branch.name
+bh pr list --json --jq '.[] | "\(.id)\t\(.title)"'
+bh pr checks 123 --json -q '.[] | select(.state == "FAILED") | .url'
 ```
 
 ## Usage examples
@@ -411,6 +453,5 @@ The following are intentionally out of scope for now:
 
 - Bitbucket Data Center (server) support
 - Storing credentials in an OS keyring
-- `--json <fields>` field selection (only a boolean `--json` dump is available)
 - `pr status`
 - A bundled CI workflow

@@ -2,6 +2,7 @@ package pr
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -577,5 +578,102 @@ func TestRefsLineTTYRelative(t *testing.T) {
 	pr.UpdatedOn = time.Time{}
 	if got := refsLine(pr, false, cmdtest.FixedNow()); got != "Head: abc · Base: main" {
 		t.Errorf("refsLine without update time = %q", got)
+	}
+}
+
+func TestViewJSONFields(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newViewOptions(t, srv)
+	opts.IO = ios
+	opts.JSON = true
+	opts.JSONOutput = cmdutil.JSONOutput{Fields: []string{"id", "state", "source.branch.name", "reviewers.nickname"}}
+
+	if err := viewRun(t.Context(), opts); err != nil {
+		t.Fatalf("viewRun: %v", err)
+	}
+	want := `{
+  "id": 123,
+  "state": "OPEN",
+  "source": {
+    "branch": {
+      "name": "feature"
+    }
+  },
+  "reviewers": [
+    {
+      "nickname": "bob"
+    }
+  ]
+}
+`
+	if out.String() != want {
+		t.Errorf("output =\n%s\nwant\n%s", out.String(), want)
+	}
+}
+
+func TestViewJQ(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newViewOptions(t, srv)
+	opts.IO = ios
+	opts.JSON = true
+	opts.JSONOutput = cmdutil.JSONOutput{JQ: `.source.branch.name, ([.participants[] | select(.approved) | .user.nickname] | join(","))`}
+
+	if err := viewRun(t.Context(), opts); err != nil {
+		t.Fatalf("viewRun: %v", err)
+	}
+	if got, want := out.String(), "feature\nbob\n"; got != want {
+		t.Errorf("output = %q, want %q", got, want)
+	}
+}
+
+func TestViewJSONFlagParsing(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		args    []string
+		arg     string
+		fields  []string
+		jq      string
+		wantErr string
+	}{
+		{name: "bare", args: []string{"1", "--json"}, arg: "1"},
+		{name: "bare before the argument", args: []string{"--json", "1"}, arg: "1"},
+		{name: "fields", args: []string{"1", "--json=id,source.branch.name", "-q", ".id"}, arg: "1", fields: []string{"id", "source.branch.name"}, jq: ".id"},
+		{name: "unknown field", args: []string{"1", "--json=nope"}, wantErr: `unknown JSON field "nope"`},
+		{name: "jq without json", args: []string{"1", "--jq", ".id"}, wantErr: "--jq requires --json"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var captured *ViewOptions
+			cmd := NewCmdView(cmdtest.NewFactory(), func(o *ViewOptions) error {
+				captured = o
+				return nil
+			})
+			_, _, err := cmdtest.RunCommand(t, cmd, tt.args...)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want %q", err, tt.wantErr)
+				}
+				if captured != nil {
+					t.Error("runF should not be called")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("execute: %v", err)
+			}
+			if captured.Arg != tt.arg || !captured.JSON || !slices.Equal(captured.JSONOutput.Fields, tt.fields) || captured.JSONOutput.JQ != tt.jq {
+				t.Errorf("Arg=%q JSON=%v Fields=%q JQ=%q", captured.Arg, captured.JSON, captured.JSONOutput.Fields, captured.JSONOutput.JQ)
+			}
+		})
 	}
 }

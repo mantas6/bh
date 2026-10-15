@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/mail"
+	"reflect"
 	"strings"
 	"time"
 
@@ -26,8 +27,9 @@ type CommitsOptions struct {
 	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 	Now       func() time.Time
 
-	Arg  string
-	JSON bool
+	Arg        string
+	JSON       bool
+	JSONOutput cmdutil.JSONOutput
 }
 
 // NewCmdCommits creates the "pr commits" command.
@@ -60,7 +62,7 @@ fields are tab-separated and dates are RFC 3339 timestamps.`,
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.JSON, "json", false, "Output the commits as JSON")
+	cmdutil.AddJSONFlags(cmd, &opts.JSON, &opts.JSONOutput, reflect.TypeFor[api.PRCommit](), "the commits")
 
 	return cmd
 }
@@ -77,7 +79,7 @@ func commitsRun(ctx context.Context, opts *CommitsOptions) error {
 	}
 
 	if opts.JSON {
-		return cmdutil.PrintJSON(opts.IO.Out, commits)
+		return opts.JSONOutput.Print(opts.IO, commits)
 	}
 
 	isTTY := opts.IO.IsStdoutTTY()

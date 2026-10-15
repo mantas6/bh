@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -32,9 +33,10 @@ type ChecksOptions struct {
 	// Sleep waits for d or until ctx is done; nil uses a timer.
 	Sleep func(ctx context.Context, d time.Duration) error
 
-	Arg   string
-	JSON  bool
-	Watch bool
+	Arg        string
+	JSON       bool
+	JSONOutput cmdutil.JSONOutput
+	Watch      bool
 }
 
 // NewCmdChecks creates the "pr checks" command.
@@ -80,7 +82,7 @@ Exits with status 1 when any check failed, also with --json.`,
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.JSON, "json", false, "Output the checks as JSON")
+	cmdutil.AddJSONFlags(cmd, &opts.JSON, &opts.JSONOutput, reflect.TypeFor[api.CommitStatus](), "the checks")
 	cmd.Flags().BoolVar(&opts.Watch, "watch", false, "Poll until no check is in progress")
 
 	return cmd
@@ -131,7 +133,7 @@ func checksRun(ctx context.Context, opts *ChecksOptions) error {
 	}
 
 	if opts.JSON {
-		err = cmdutil.PrintJSON(opts.IO.Out, statuses)
+		err = opts.JSONOutput.Print(opts.IO, statuses)
 	} else {
 		err = printChecks(opts.IO, statuses, found.Number, now())
 	}

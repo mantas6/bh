@@ -321,3 +321,20 @@ func TestChecksArgs(t *testing.T) {
 		t.Errorf("opts = %+v", got)
 	}
 }
+
+func TestChecksJQKeepsExitCode(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle(http.MethodGet, statusesPath, 200, sampleStatuses)
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newChecksOptions(t, srv, ios)
+	opts.JSON = true
+	opts.JSONOutput = cmdutil.JSONOutput{Fields: []string{"key", "state"}, JQ: `.[] | select(.state == "FAILED") | .key`}
+
+	if err := checksRun(t.Context(), opts); !errors.Is(err, cmdutil.ErrSilent) {
+		t.Fatalf("err = %v, want ErrSilent for a failed check", err)
+	}
+	if got, want := out.String(), "lint\n"; got != want {
+		t.Errorf("output = %q, want %q", got, want)
+	}
+}

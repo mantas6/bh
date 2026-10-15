@@ -392,3 +392,24 @@ func TestListTruncationNotice(t *testing.T) {
 		})
 	}
 }
+
+func TestListJSONFieldsAndJQ(t *testing.T) {
+	t.Parallel()
+	second := cmdtest.SamplePR()
+	second.ID, second.Title = 124, "Second"
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, cmdtest.ValuesPage([]api.PullRequest{*cmdtest.SamplePR(), *second}))
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newListOptions(srv)
+	opts.IO = ios
+	opts.JSON = true
+	opts.JSONOutput = cmdutil.JSONOutput{Fields: []string{"id", "title"}, JQ: `.[] | "\(.id) \(.title) \(keys | length)"`}
+
+	if err := listRun(t.Context(), opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	if got, want := out.String(), "123 Add feature 2\n124 Second 2\n"; got != want {
+		t.Errorf("output = %q, want %q", got, want)
+	}
+}

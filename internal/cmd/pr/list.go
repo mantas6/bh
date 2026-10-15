@@ -3,6 +3,7 @@ package pr
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -22,14 +23,15 @@ type ListOptions struct {
 	Browser   cmdutil.Browser
 	Now       func() time.Time
 
-	State  string
-	Limit  int
-	Author string
-	Search string
-	Base   string
-	Head   string
-	JSON   bool
-	Web    bool
+	State      string
+	Limit      int
+	Author     string
+	Search     string
+	Base       string
+	Head       string
+	JSON       bool
+	JSONOutput cmdutil.JSONOutput
+	Web        bool
 }
 
 // NewCmdList creates the "pr list" command.
@@ -73,7 +75,7 @@ printed on stderr (not with --json).`,
 	cmd.Flags().StringVarP(&opts.Search, "search", "s", "", "Search pull requests with a query")
 	cmd.Flags().StringVarP(&opts.Base, "base", "B", "", "Filter by destination branch")
 	cmd.Flags().StringVarP(&opts.Head, "head", "H", "", "Filter by source branch")
-	cmd.Flags().BoolVar(&opts.JSON, "json", false, "Output pull requests as JSON")
+	cmdutil.AddJSONFlags(cmd, &opts.JSON, &opts.JSONOutput, reflect.TypeFor[api.PullRequest](), "pull requests")
 	cmd.Flags().BoolVar(&opts.Web, "web", false, "List pull requests in the web browser")
 
 	return cmd
@@ -133,7 +135,7 @@ func listRun(ctx context.Context, opts *ListOptions) error {
 	}
 
 	if opts.JSON {
-		return cmdutil.PrintJSON(opts.IO.Out, prs)
+		return opts.JSONOutput.Print(opts.IO, prs)
 	}
 
 	isTTY := opts.IO.IsStdoutTTY()

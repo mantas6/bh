@@ -10,6 +10,7 @@ import (
 
 	"github.com/mantas6/bh/internal/cmd/factory"
 	"github.com/mantas6/bh/internal/cmd/root"
+	"github.com/mantas6/bh/internal/cmdutil"
 )
 
 func main() {
@@ -24,6 +25,8 @@ func run() int {
 
 	f := factory.New(buildVersion())
 	rootCmd := root.NewCmdRoot(f)
+	// Let `--json a,b` select fields like `--json=a,b`.
+	rootCmd.SetArgs(cmdutil.NormalizeJSONArgs(rootCmd, os.Args[1:]))
 
 	// ExecuteContextC returns the command that ran (or failed) so the usage
 	// hint for flag errors names the right command.

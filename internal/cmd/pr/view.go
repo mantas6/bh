@@ -3,6 +3,7 @@ package pr
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ type ViewOptions struct {
 
 	Arg        string
 	JSON       bool
+	JSONOutput cmdutil.JSONOutput
 	Web        bool
 	Comments   bool
 	Unresolved bool
@@ -78,7 +80,7 @@ pointing at ` + "`bh pr comment list`" + `, just above the final URL line.`,
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.JSON, "json", false, "Output the pull request as JSON")
+	cmdutil.AddJSONFlags(cmd, &opts.JSON, &opts.JSONOutput, reflect.TypeFor[api.PullRequest](), "the pull request")
 	cmd.Flags().BoolVar(&opts.Web, "web", false, "Open the pull request in the web browser")
 	cmd.Flags().BoolVarP(&opts.Comments, "comments", "c", false, "Show the comment threads after the description")
 	cmd.Flags().BoolVar(&opts.Unresolved, "unresolved", false, "With --comments, show only unresolved comment threads (implies --comments)")
@@ -98,7 +100,7 @@ func viewRun(ctx context.Context, opts *ViewOptions) error {
 	}
 
 	if opts.JSON {
-		return cmdutil.PrintJSON(opts.IO.Out, pr)
+		return opts.JSONOutput.Print(opts.IO, pr)
 	}
 
 	var threads *shared.Threads

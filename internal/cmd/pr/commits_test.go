@@ -157,3 +157,21 @@ func TestCommitsArgs(t *testing.T) {
 		t.Errorf("opts = %+v", got)
 	}
 }
+
+func TestCommitsJSONFields(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle(http.MethodGet, "/repositories/myws/myrepo/pullrequests/123/commits", 200, sampleCommits)
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newCommitsOptions(t, srv, ios)
+	opts.JSON = true
+	opts.JSONOutput = cmdutil.JSONOutput{Fields: []string{"hash", "author.raw"}, JQ: `.[1]`}
+
+	if err := commitsRun(t.Context(), opts); err != nil {
+		t.Fatalf("commitsRun: %v", err)
+	}
+	want := `{"author":{"raw":"Bob Builder <bob@example.com>"},"hash":"bbbbbbbbbbbb2222222222222222222222222222"}` + "\n"
+	if out.String() != want {
+		t.Errorf("output = %q, want %q", out.String(), want)
+	}
+}

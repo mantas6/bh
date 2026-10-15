@@ -430,3 +430,24 @@ func TestListExactOutput(t *testing.T) {
 		t.Errorf("output mismatch\n got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+func TestListJSONFields(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	root := cmdtest.CommentAt(1, "ada", "Rename this", 60)
+	root.Resolution = &api.Resolution{Type: "resolved"}
+	reply := cmdtest.CommentAt(2, "bob", "Done", 30)
+	reply.Parent = &api.CommentRef{ID: 1}
+	listComments(srv, []api.Comment{root, reply})
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newListOpts(t, srv, ios)
+	opts.JSON = true
+	opts.JSONOutput = cmdutil.JSONOutput{Fields: []string{"id", "thread_id", "resolved", "user.nickname"}, JQ: "map([.id, .thread_id, .resolved, .user.nickname])"}
+	if err := listRun(t.Context(), opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	if got, want := out.String(), `[[1,1,true,"ada"],[2,1,true,"bob"]]`+"\n"; got != want {
+		t.Errorf("output = %q, want %q", got, want)
+	}
+}

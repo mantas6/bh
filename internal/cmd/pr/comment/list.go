@@ -3,6 +3,7 @@ package comment
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/mantas6/bh/internal/api"
@@ -22,6 +23,7 @@ type ListOptions struct {
 
 	Arg        string
 	JSON       bool
+	JSONOutput cmdutil.JSONOutput
 	Unresolved bool
 	Limit      int
 }
@@ -54,7 +56,7 @@ func NewCmdList(f *cmdutil.Factory, runF func(*ListOptions) error) *cobra.Comman
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.JSON, "json", false, "Output comments as JSON")
+	cmdutil.AddJSONFlags(cmd, &opts.JSON, &opts.JSONOutput, reflect.TypeFor[shared.CommentJSON](), "comments")
 	cmd.Flags().BoolVar(&opts.Unresolved, "unresolved", false, "Show only unresolved comment threads")
 	cmd.Flags().IntVarP(&opts.Limit, "limit", "L", 0, "Maximum number of comment threads to show (0 = all)")
 
@@ -81,7 +83,7 @@ func listRun(ctx context.Context, opts *ListOptions) error {
 	}
 
 	if opts.JSON {
-		return cmdutil.PrintJSON(opts.IO.Out, threads.JSON(comments))
+		return opts.JSONOutput.Print(opts.IO, threads.JSON(comments))
 	}
 
 	if len(threads.Roots) == 0 {
