@@ -56,6 +56,9 @@ func NewCmdEdit(f *cmdutil.Factory, runF func(*EditOptions) error) *cobra.Comman
 			Names passed to --add-reviewer are resolved by listing the workspace
 			members, which needs the read:workspace:bitbucket token scope; a
 			{uuid} or account ID is used as is, without that lookup.
+
+			The pull request URL is the only line printed on standard output; a
+			summary of what changed goes to standard error.
 		`),
 		Args: cmdutil.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -103,9 +106,12 @@ func editRun(ctx context.Context, opts *EditOptions) error {
 	}
 	pr, repo, client := found.PR, found.Repo, found.Client
 
+	// changed names the edited fields for the summary line.
 	var in api.UpdatePRInput
+	var changed []string
 	if opts.titleSet {
 		in.Title = &opts.Title
+		changed = append(changed, "title")
 	}
 	if opts.bodySet {
 		in.Description = &opts.Body
@@ -117,12 +123,12 @@ func editRun(ctx context.Context, opts *EditOptions) error {
 		}
 		in.Description = &b
 	}
+	if in.Description != nil {
+		changed = append(changed, "body")
+	}
 	if opts.Base != "" {
 		in.DestinationBranch = &opts.Base
-	}
-	if opts.Draft || opts.Ready {
-		draft := opts.Draft
-		in.Draft = &draft
+		changed = append(changed, "base")
 	}
 
 	if len(opts.AddReviewers) > 0 || len(opts.RemoveReviewers) > 0 {
@@ -131,6 +137,16 @@ func editRun(ctx context.Context, opts *EditOptions) error {
 			return err
 		}
 		in.Reviewers = uuids
+		changed = append(changed, "reviewers")
+	}
+	if opts.Draft || opts.Ready {
+		draft := opts.Draft
+		in.Draft = &draft
+		if draft {
+			changed = append(changed, "draft")
+		} else {
+			changed = append(changed, "ready")
+		}
 	}
 
 	updated, err := client.UpdatePullRequest(ctx, repo.FullName(), pr.ID, in)
@@ -139,6 +155,7 @@ func editRun(ctx context.Context, opts *EditOptions) error {
 	}
 
 	fmt.Fprintln(opts.IO.Out, updated.Links.HTML.Href)
+	fmt.Fprintf(opts.IO.ErrOut, "%s Updated #%d: %s\n", opts.IO.ErrColorScheme().SuccessIcon(), pr.ID, strings.Join(changed, ", "))
 	return nil
 }
 

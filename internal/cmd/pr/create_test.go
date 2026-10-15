@@ -20,10 +20,20 @@ func createdPRResponse() *api.PullRequest {
 	}
 }
 
+// newStub returns a strict git stub with no bh.base configured.
+func newStub(t *testing.T) *gittest.Stub {
+	return gittest.New(t).Register("", gittest.Exit(1), "config", "--get", "bh.base")
+}
+
+// noDefaultReviewers serves an empty effective default reviewers list.
+func noDefaultReviewers(srv *apitest.Server) {
+	srv.Handle("GET", "/repositories/myws/myrepo/effective-default-reviewers", 200, cmdtest.ValuesPage([]any{}))
+}
+
 // untrackedStub returns a strict git stub for a head branch with no upstream
 // tracking configuration.
 func untrackedStub(t *testing.T, head string) *gittest.Stub {
-	return gittest.New(t).
+	return newStub(t).
 		Register("", gittest.Exit(1), "config", "--get", "branch."+head+".remote").
 		Register("", gittest.Exit(1), "config", "--get", "branch."+head+".merge")
 }
@@ -41,6 +51,7 @@ func TestCreateBodyShape(t *testing.T) {
 	srv := apitest.New(t)
 	srv.Handle("GET", "/workspaces/myws/members", 200, cmdtest.Members("bob"))
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+	noDefaultReviewers(srv)
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
@@ -121,6 +132,7 @@ func TestCreateReviewerByUUIDSkipsLookup(t *testing.T) {
 	t.Parallel()
 	srv := apitest.New(t) // no members route: a lookup would fail the test
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+	noDefaultReviewers(srv)
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
@@ -149,6 +161,7 @@ func TestCreateAutoPushTTYYes(t *testing.T) {
 	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+	noDefaultReviewers(srv)
 
 	stub := untrackedStub(t, "feature")
 	// Branch not on remote -> push path.
@@ -157,6 +170,7 @@ func TestCreateAutoPushTTYYes(t *testing.T) {
 
 	ios, in, _, _ := cmdutil.TestIOStreams()
 	ios.SetStdinTTY(true)
+	ios.SetStdoutTTY(true) // keep git's own push output
 	in.WriteString("y\n")
 
 	opts := &CreateOptions{
@@ -207,11 +221,12 @@ func TestCreateNonTTYWithPush(t *testing.T) {
 	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+	noDefaultReviewers(srv)
 
 	stub := untrackedStub(t, "feature")
-	stub.Expect("push", "-u", "--end-of-options", "origin", "feature")
+	stub.Expect("push", "--quiet", "-u", "--end-of-options", "origin", "feature")
 
-	ios, _, _, _ := cmdutil.TestIOStreams()
+	ios, _, out, errOut := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
 		APIClient: cmdtest.ClientFunc(srv),
@@ -225,8 +240,14 @@ func TestCreateNonTTYWithPush(t *testing.T) {
 	if err := createRun(t.Context(), opts); err != nil {
 		t.Fatalf("createRun: %v", err)
 	}
-	if !slices.Equal(stub.InteractiveStrings(), []string{"push -u --end-of-options origin feature"}) {
-		t.Errorf("push argv = %v", stub.InteractiveStrings())
+	if len(stub.Interactive()) != 0 {
+		t.Errorf("push must be quiet when stdout is not a terminal: %v", stub.InteractiveStrings())
+	}
+	if out.String() != "https://bitbucket.org/myws/myrepo/pull-requests/123\n" {
+		t.Errorf("stdout = %q, want only the URL", out.String())
+	}
+	if !strings.Contains(errOut.String(), "✓ Pushed feature to origin\n") {
+		t.Errorf("stderr = %q, want a push confirmation", errOut.String())
 	}
 }
 
@@ -234,8 +255,9 @@ func TestCreateUpstreamAheadWarns(t *testing.T) {
 	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+	noDefaultReviewers(srv)
 
-	stub := gittest.New(t)
+	stub := newStub(t)
 	stub.Register("origin", nil, "config", "--get", "branch.feature.remote")
 	stub.Register("refs/heads/feature", nil, "config", "--get", "branch.feature.merge")
 	stub.Register("3", nil, "rev-list", "--count", "origin/feature..feature")
@@ -269,6 +291,7 @@ func TestCreateFillSingleCommit(t *testing.T) {
 		MainBranch: &api.Branch{Name: "main"},
 	})
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+	noDefaultReviewers(srv)
 
 	stub := pushedStub(t, "feature")
 	// git.Commits log for main..feature -> one commit.
@@ -376,13 +399,15 @@ func TestCreatePushTargetsBranchUpstreamRemote(t *testing.T) {
 	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+	noDefaultReviewers(srv)
 
-	stub := gittest.New(t)
+	stub := newStub(t)
 	stub.Register("fork", nil, "config", "--get", "branch.feature.remote")
 	stub.Register("refs/heads/feature", nil, "config", "--get", "branch.feature.merge")
 	stub.Expect("push", "-u", "--end-of-options", "fork", "feature")
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
+	ios.SetStdoutTTY(true)
 	opts := &CreateOptions{
 		IO:        ios,
 		APIClient: cmdtest.ClientFunc(srv),
@@ -404,13 +429,15 @@ func TestCreatePushUntrackedDefaultsToOrigin(t *testing.T) {
 	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+	noDefaultReviewers(srv)
 
-	stub := gittest.New(t)
+	stub := newStub(t)
 	stub.Register("", gittest.Exit(1), "config", "--get", "branch.feature.remote")
 	stub.Register("", gittest.Exit(1), "config", "--get", "branch.feature.merge")
 	stub.Expect("push", "-u", "--end-of-options", "origin", "feature")
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
+	ios.SetStdoutTTY(true)
 	opts := &CreateOptions{
 		IO:        ios,
 		APIClient: cmdtest.ClientFunc(srv),
@@ -432,6 +459,7 @@ func TestCreatePushWhenRemoteBranchExistsUntracked(t *testing.T) {
 	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+	noDefaultReviewers(srv)
 
 	stub := untrackedStub(t, "feature")
 	// The branch already exists on origin, but --push still pushes.
@@ -439,6 +467,7 @@ func TestCreatePushWhenRemoteBranchExistsUntracked(t *testing.T) {
 	stub.Expect("push", "-u", "--end-of-options", "origin", "feature")
 
 	ios, _, _, _ := cmdutil.TestIOStreams()
+	ios.SetStdoutTTY(true)
 	opts := &CreateOptions{
 		IO:        ios,
 		APIClient: cmdtest.ClientFunc(srv),
@@ -460,6 +489,7 @@ func TestCreateRemoteBranchExistsUntrackedWarnsAhead(t *testing.T) {
 	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+	noDefaultReviewers(srv)
 
 	stub := untrackedStub(t, "feature")
 	stub.Register("", nil, "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/feature")
@@ -490,7 +520,7 @@ func TestCreateFillUnknownBaseErrors(t *testing.T) {
 	srv := apitest.New(t)
 	srv.Handle("GET", "/repositories/myws/myrepo", 200, api.Repository{FullName: "myws/myrepo"})
 
-	stub := gittest.New(t)
+	stub := newStub(t)
 	ios, _, _, _ := cmdutil.TestIOStreams()
 	opts := &CreateOptions{
 		IO:        ios,
@@ -513,6 +543,7 @@ func TestCreateFillExplicitBaseUsesRemoteRef(t *testing.T) {
 	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+	noDefaultReviewers(srv)
 
 	stub := untrackedStub(t, "my-feature")
 	stub.Register("a\x00First\x00\x1eb\x00Second\x00\x1e", nil,
@@ -596,6 +627,7 @@ func TestCreatePipedPromptsShareStdin(t *testing.T) {
 	t.Parallel()
 	srv := apitest.New(t)
 	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+	noDefaultReviewers(srv)
 
 	stub := untrackedStub(t, "feature")
 	stub.Register("", gittest.Exit(2), "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/feature")
@@ -603,6 +635,7 @@ func TestCreatePipedPromptsShareStdin(t *testing.T) {
 
 	ios, in, _, errOut := cmdutil.TestIOStreams()
 	ios.SetStdinTTY(true)
+	ios.SetStdoutTTY(true) // keep git's own push output
 	in.WriteString("y\nPiped title\n")
 
 	opts := &CreateOptions{
@@ -623,5 +656,296 @@ func TestCreatePipedPromptsShareStdin(t *testing.T) {
 	cmdtest.RequireRequest(t, srv, "POST", "/pullrequests").DecodeJSON(t, &body)
 	if body["title"] != "Piped title" {
 		t.Errorf("title = %v", body["title"])
+	}
+}
+
+func TestCreateAddsDefaultReviewersExceptAuthor(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/effective-default-reviewers", 200, cmdtest.ValuesPage([]map[string]any{
+		{"reviewer_type": "repository", "user": cmdtest.User("ada")},
+		{"reviewer_type": "project", "user": cmdtest.User("bob")},
+		{"reviewer_type": "repository", "user": cmdtest.User("cara")},
+	}))
+	srv.Handle("GET", "/user", 200, cmdtest.User("ada"))
+	created := createdPRResponse()
+	created.Draft = true
+	created.Source.Branch.Name = "feature"
+	created.Destination.Branch.Name = "dev"
+	created.Reviewers = []api.User{cmdtest.User("cara"), cmdtest.User("bob")}
+	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, created)
+
+	ios, _, out, errOut := cmdutil.TestIOStreams()
+	opts := &CreateOptions{
+		IO:        ios,
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(pushedStub(t, "feature")),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
+		Title:     "T",
+		Head:      "feature",
+		Base:      "dev",
+		Draft:     true,
+		Reviewers: []string{"{CARA-uuid}"},
+	}
+	if err := createRun(t.Context(), opts); err != nil {
+		t.Fatalf("createRun: %v", err)
+	}
+
+	var body struct {
+		Reviewers []map[string]string `json:"reviewers"`
+	}
+	cmdtest.RequireRequest(t, srv, "POST", "/pullrequests").DecodeJSON(t, &body)
+	var got []string
+	for _, r := range body.Reviewers {
+		got = append(got, r["uuid"])
+	}
+	if !slices.Equal(got, []string{"{cara-uuid}", "{bob-uuid}"}) {
+		t.Errorf("reviewers = %v, want explicit cara then default bob, without the author", got)
+	}
+	if out.String() != "https://bitbucket.org/myws/myrepo/pull-requests/123\n" {
+		t.Errorf("stdout = %q, want only the URL", out.String())
+	}
+	if errOut.String() != "✓ Created #123 (draft) feature → dev · reviewers: Cara, Bob\n" {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+}
+
+func TestCreateNoDefaultReviewers(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t) // no default reviewers route: a lookup would fail the test
+	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+
+	ios, _, _, errOut := cmdutil.TestIOStreams()
+	opts := &CreateOptions{
+		IO:                 ios,
+		APIClient:          cmdtest.ClientFunc(srv),
+		Git:                cmdtest.GitFunc(pushedStub(t, "feature")),
+		BaseRepo:           cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
+		Title:              "T",
+		Head:               "feature",
+		NoDefaultReviewers: true,
+	}
+	if err := createRun(t.Context(), opts); err != nil {
+		t.Fatalf("createRun: %v", err)
+	}
+	var body map[string]any
+	cmdtest.RequireRequest(t, srv, "POST", "/pullrequests").DecodeJSON(t, &body)
+	if _, ok := body["reviewers"]; ok {
+		t.Errorf("reviewers = %v, want none", body["reviewers"])
+	}
+	if errOut.String() != "✓ Created #123 feature\n" {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+}
+
+func TestCreateDefaultReviewersForbiddenWarns(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/effective-default-reviewers", 403, scopeErrorBody)
+	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+
+	ios, _, out, errOut := cmdutil.TestIOStreams()
+	opts := &CreateOptions{
+		IO:        ios,
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(pushedStub(t, "feature")),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
+		Title:     "T",
+		Head:      "feature",
+	}
+	if err := createRun(t.Context(), opts); err != nil {
+		t.Fatalf("createRun must not fail when default reviewers are forbidden: %v", err)
+	}
+	if !strings.Contains(out.String(), "pull-requests/123") {
+		t.Errorf("URL not printed: %q", out.String())
+	}
+	if !strings.Contains(errOut.String(), "! could not fetch default reviewers, continuing without them: ") ||
+		!strings.Contains(errOut.String(), "required scopes: read:workspace:bitbucket") ||
+		!strings.Contains(errOut.String(), "(use --no-default-reviewers to skip them)") {
+		t.Errorf("warning = %q", errOut.String())
+	}
+}
+
+func TestCreateDefaultReviewersUnknownUserSkipsThem(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/effective-default-reviewers", 200, cmdtest.ValuesPage([]map[string]any{
+		{"user": cmdtest.User("bob")},
+	}))
+	srv.Handle("GET", "/user", 403, scopeErrorBody)
+	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+
+	ios, _, _, errOut := cmdutil.TestIOStreams()
+	opts := &CreateOptions{
+		IO:        ios,
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(pushedStub(t, "feature")),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
+		Title:     "T",
+		Head:      "feature",
+	}
+	if err := createRun(t.Context(), opts); err != nil {
+		t.Fatalf("createRun: %v", err)
+	}
+	var body map[string]any
+	cmdtest.RequireRequest(t, srv, "POST", "/pullrequests").DecodeJSON(t, &body)
+	if _, ok := body["reviewers"]; ok {
+		t.Errorf("reviewers = %v, want none", body["reviewers"])
+	}
+	if !strings.Contains(errOut.String(), "could not determine the current user") {
+		t.Errorf("warning = %q", errOut.String())
+	}
+}
+
+func TestCreateDefaultBase(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		config string // git config bh.base; "" means unset
+		env    string // BH_BASE
+		flag   string // --base
+		want   string // destination sent; "" means omitted
+	}{
+		{name: "nothing configured uses the server default"},
+		{name: "git config", config: "dev", want: "dev"},
+		{name: "env", env: "staging", want: "staging"},
+		{name: "git config wins over env", config: "dev", env: "staging", want: "dev"},
+		{name: "flag wins", config: "dev", env: "staging", flag: "main", want: "main"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := apitest.New(t)
+			srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+			noDefaultReviewers(srv)
+
+			stub := gittest.New(t).
+				Register("", gittest.Exit(1), "config", "--get", "branch.feature.remote").
+				Register("", gittest.Exit(1), "config", "--get", "branch.feature.merge").
+				Register("", nil, "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/feature").
+				Register("0", nil, "rev-list", "--count", "origin/feature..feature")
+			if tt.flag == "" {
+				// With --base the config must not be consulted (the strict
+				// stub fails on an unregistered call).
+				var err error
+				if tt.config == "" {
+					err = gittest.Exit(1)
+				}
+				stub.Register(tt.config, err, "config", "--get", "bh.base")
+			}
+
+			ios, _, _, errOut := cmdutil.TestIOStreams()
+			opts := &CreateOptions{
+				IO:        ios,
+				APIClient: cmdtest.ClientFunc(srv),
+				Git:       cmdtest.GitFunc(stub),
+				BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
+				Getenv: func(k string) string {
+					if k == "BH_BASE" {
+						return tt.env
+					}
+					return ""
+				},
+				Title: "T",
+				Head:  "feature",
+				Base:  tt.flag,
+			}
+			if err := createRun(t.Context(), opts); err != nil {
+				t.Fatalf("createRun: %v", err)
+			}
+			var body struct {
+				Destination *struct {
+					Branch struct{ Name string } `json:"branch"`
+				} `json:"destination"`
+			}
+			cmdtest.RequireRequest(t, srv, "POST", "/pullrequests").DecodeJSON(t, &body)
+			got := ""
+			if body.Destination != nil {
+				got = body.Destination.Branch.Name
+			}
+			if got != tt.want {
+				t.Errorf("destination = %q, want %q", got, tt.want)
+			}
+			if tt.want != "" && !strings.Contains(errOut.String(), "feature → "+tt.want) {
+				t.Errorf("summary = %q", errOut.String())
+			}
+		})
+	}
+}
+
+func TestCreateWebUsesConfiguredBase(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t) // no repository route: the main branch must not be looked up
+
+	stub := untrackedStub(t, "feature").
+		Register("", nil, "ls-remote", "--exit-code", "--heads", "origin", "refs/heads/feature").
+		Register("0", nil, "rev-list", "--count", "origin/feature..feature")
+	stub.Register("dev", nil, "config", "--get", "bh.base")
+
+	fb := &cmdtest.FakeBrowser{}
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := &CreateOptions{
+		IO:        ios,
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(stub),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
+		Browser:   fb,
+		Head:      "feature",
+		Web:       true,
+	}
+	if err := createRun(t.Context(), opts); err != nil {
+		t.Fatalf("createRun: %v", err)
+	}
+	want := "https://bitbucket.org/myws/myrepo/pull-requests/new?source=feature&dest=dev"
+	if fb.URL() != want {
+		t.Errorf("web url = %q, want %q", fb.URL(), want)
+	}
+}
+
+func TestCreateQuietPushFailureShowsGitOutput(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t) // nothing may be created
+
+	stub := untrackedStub(t, "feature")
+	stub.Register("", &git.Error{
+		Args:     []string{"push", "--quiet", "-u", "--end-of-options", "origin", "feature"},
+		ExitCode: 1,
+		Stderr:   "remote: Permission denied\nfatal: Could not read from remote repository.\n",
+	}, "push", "--quiet", "-u", "--end-of-options", "origin", "feature")
+
+	ios, _, out, errOut := cmdutil.TestIOStreams()
+	opts := &CreateOptions{
+		IO:        ios,
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(stub),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
+		Title:     "T",
+		Head:      "feature",
+		Push:      true,
+	}
+	err := createRun(t.Context(), opts)
+	if err == nil || !strings.Contains(err.Error(), "remote: Permission denied") {
+		t.Fatalf("err = %v, want git's output", err)
+	}
+	if out.Len() != 0 || strings.Contains(errOut.String(), "Pushed") {
+		t.Errorf("stdout = %q, stderr = %q", out.String(), errOut.String())
+	}
+}
+
+func TestCreateNoDefaultReviewersFlag(t *testing.T) {
+	t.Parallel()
+	var captured *CreateOptions
+	cmd := NewCmdCreate(cmdtest.NewFactory(), func(o *CreateOptions) error {
+		captured = o
+		return nil
+	})
+	if _, _, err := cmdtest.RunCommand(t, cmd, "--no-default-reviewers"); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !captured.NoDefaultReviewers {
+		t.Error("--no-default-reviewers not parsed")
+	}
+	if captured.Getenv == nil {
+		t.Error("Getenv must default to the process environment")
 	}
 }

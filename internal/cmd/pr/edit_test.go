@@ -299,3 +299,35 @@ func TestDirectReviewerID(t *testing.T) {
 		}
 	}
 }
+
+func TestEditSummaryLine(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
+	srv.Handle("PUT", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
+
+	ios, _, out, errOut := cmdutil.TestIOStreams()
+	opts := &EditOptions{
+		IO:              ios,
+		APIClient:       cmdtest.ClientFunc(srv),
+		Git:             cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:        cmdtest.BaseRepoFunc(nil),
+		Arg:             "123",
+		Title:           "New",
+		titleSet:        true,
+		Body:            "",
+		bodySet:         true,
+		Base:            "dev",
+		RemoveReviewers: []string{"bob"},
+		Ready:           true,
+	}
+	if err := editRun(t.Context(), opts); err != nil {
+		t.Fatalf("editRun: %v", err)
+	}
+	if out.String() != "https://bitbucket.org/myws/myrepo/pull-requests/123\n" {
+		t.Errorf("stdout = %q, want only the URL", out.String())
+	}
+	if errOut.String() != "✓ Updated #123: title, body, base, reviewers, ready\n" {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+}

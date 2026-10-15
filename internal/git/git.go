@@ -322,6 +322,15 @@ func Push(ctx context.Context, r Runner, remote, branch string) error {
 	return r.RunInteractive(ctx, "push", "-u", "--end-of-options", remote, branch)
 }
 
+// PushQuiet runs `git push --quiet -u <remote> <branch>` with its output
+// captured rather than shown, for non-interactive use where progress and
+// "remote:" banners are noise. On failure the returned *Error carries git's
+// stderr.
+func PushQuiet(ctx context.Context, r Runner, remote, branch string) error {
+	_, err := r.Run(ctx, "push", "--quiet", "-u", "--end-of-options", remote, branch)
+	return err
+}
+
 // Fetch runs an interactive `git fetch <remote> [refspec]`.
 func Fetch(ctx context.Context, r Runner, remote, refspec string) error {
 	args := []string{"fetch", "--end-of-options", remote}

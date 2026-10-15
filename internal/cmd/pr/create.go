@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"slices"
 	"strings"
 
 	"github.com/mantas6/bh/internal/api"
@@ -21,18 +23,21 @@ type CreateOptions struct {
 	Git       func() (git.Runner, error)
 	BaseRepo  func(context.Context) (git.Repo, *git.ResolvedRemote, error)
 	Browser   cmdutil.Browser
+	// Getenv looks up BH_BASE; nil means it is unset.
+	Getenv func(string) string
 
-	Title             string
-	Body              string
-	BodyFile          string
-	Base              string
-	Head              string
-	Draft             bool
-	Reviewers         []string
-	CloseSourceBranch bool
-	Fill              bool
-	Push              bool
-	Web               bool
+	Title              string
+	Body               string
+	BodyFile           string
+	Base               string
+	Head               string
+	Draft              bool
+	Reviewers          []string
+	NoDefaultReviewers bool
+	CloseSourceBranch  bool
+	Fill               bool
+	Push               bool
+	Web                bool
 }
 
 // NewCmdCreate creates the "pr create" command.
@@ -43,6 +48,7 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 		Git:       f.Git,
 		BaseRepo:  f.BaseRepo,
 		Browser:   f.Browser,
+		Getenv:    os.Getenv,
 	}
 
 	cmd := &cobra.Command{
@@ -53,13 +59,24 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 
 			The head branch defaults to the current branch. When it has not been
 			pushed yet you are prompted to push it (use --push to skip the prompt,
-			required when not running interactively). The base branch defaults to
-			the repository's main branch.
+			required when not running interactively). When standard output is not
+			a terminal the push is quiet: git's output is shown only if it fails.
+
+			The base branch defaults to, in order: git config bh.base (repository,
+			then global), the BH_BASE environment variable, and the repository's
+			main branch.
 
 			Reviewers are given by nickname, display name, {uuid} or account ID.
 			Names are resolved by listing the workspace members, which needs the
 			read:workspace:bitbucket token scope; a {uuid} or account ID is used
-			as is, without that lookup.
+			as is, without that lookup. The repository's default reviewers
+			(including those inherited from its project) are added too, except
+			you; pass --no-default-reviewers to leave them out. When they cannot
+			be fetched a warning is printed and the pull request is created
+			without them.
+
+			The pull request URL is the only line printed on standard output; a
+			summary line goes to standard error.
 		`),
 		Example: cmdutil.Heredoc(`
 			# Interactively create a PR from the current branch
@@ -70,6 +87,9 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 
 			# Create a PR against a specific base with reviewers
 			$ bh pr create --base main --reviewer alice,bob --title "Fix bug"
+
+			# Always target "dev" in this repository unless --base is given
+			$ git config bh.base dev
 
 			# Open the create page in the browser instead
 			$ bh pr create --web
@@ -89,10 +109,11 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 
 	cmd.Flags().StringVarP(&opts.Title, "title", "t", "", "Title for the pull request")
 	cmdutil.AddBodyFlags(cmd, &opts.Body, &opts.BodyFile)
-	cmd.Flags().StringVarP(&opts.Base, "base", "B", "", "The branch to merge into")
+	cmd.Flags().StringVarP(&opts.Base, "base", "B", "", "The branch to merge into (default: bh.base git config, $BH_BASE, or the main branch)")
 	cmd.Flags().StringVarP(&opts.Head, "head", "H", "", "The branch that contains commits (defaults to current branch)")
 	cmd.Flags().BoolVar(&opts.Draft, "draft", false, "Mark the pull request as a draft")
 	cmd.Flags().StringSliceVarP(&opts.Reviewers, "reviewer", "r", nil, "Request reviews from people by name, {uuid} or account ID (comma-separated)")
+	cmd.Flags().BoolVar(&opts.NoDefaultReviewers, "no-default-reviewers", false, "Do not add the repository's default reviewers")
 	cmd.Flags().BoolVar(&opts.CloseSourceBranch, "close-source-branch", false, "Close the source branch when the PR merges")
 	cmd.Flags().BoolVarP(&opts.Fill, "fill", "f", false, "Use commit info for the title and body")
 	cmd.Flags().BoolVar(&opts.Push, "push", false, "Push the branch to its upstream remote (default origin) before creating")
@@ -127,12 +148,19 @@ func createRun(ctx context.Context, opts *CreateOptions) error {
 		return err
 	}
 
+	base := opts.Base
+	if base == "" {
+		if base, err = configuredBase(ctx, gitRunner, opts.Getenv); err != nil {
+			return err
+		}
+	}
+
 	// The effective base is needed for --fill commit ranges and the --web
-	// URL. When the user did not pass --base we look up the repo's default
-	// branch, but we still omit destination from the API create body so the
-	// server applies its own default.
-	effectiveBase := opts.Base
-	if opts.Base == "" && (opts.Fill || opts.Web) {
+	// URL. When no base was given or configured we look up the repo's
+	// default branch, but we still omit destination from the API create body
+	// so the server applies its own default.
+	effectiveBase := base
+	if base == "" && (opts.Fill || opts.Web) {
 		r, err := client.Repository(ctx, repo.FullName())
 		if err != nil {
 			return err
@@ -204,12 +232,15 @@ func createRun(ctx context.Context, opts *CreateOptions) error {
 	if err != nil {
 		return err
 	}
+	if !opts.NoDefaultReviewers {
+		reviewerIDs = addDefaultReviewers(ctx, opts.IO, client, repo.FullName(), reviewerIDs)
+	}
 
 	pr, err := client.CreatePullRequest(ctx, repo.FullName(), api.CreatePRInput{
 		Title:             title,
 		Description:       body,
 		SourceBranch:      head,
-		DestinationBranch: opts.Base,
+		DestinationBranch: base,
 		Reviewers:         reviewerIDs,
 		Draft:             opts.Draft,
 		CloseSourceBranch: opts.CloseSourceBranch,
@@ -219,7 +250,107 @@ func createRun(ctx context.Context, opts *CreateOptions) error {
 	}
 
 	fmt.Fprintln(opts.IO.Out, pr.Links.HTML.Href)
+	fmt.Fprintln(opts.IO.ErrOut, createdSummary(opts.IO, pr, opts.Draft, head, effectiveBase))
 	return nil
+}
+
+// configuredBase returns the base branch configured for new pull requests:
+// git config bh.base (repository-local, then global) or else $BH_BASE. It is
+// "" when neither is set.
+func configuredBase(ctx context.Context, gitRunner git.Runner, getenv func(string) string) (string, error) {
+	base, err := git.GetConfig(ctx, gitRunner, "bh.base")
+	if err != nil {
+		return "", fmt.Errorf("reading git config bh.base: %w", err)
+	}
+	if base = strings.TrimSpace(base); base != "" || getenv == nil {
+		return base, nil
+	}
+	return strings.TrimSpace(getenv("BH_BASE")), nil
+}
+
+// addDefaultReviewers appends the repository's effective default reviewers
+// to ids, leaving out the current user (Bitbucket rejects the author as a
+// reviewer) and anyone already present. It is best effort: when the
+// defaults or the current user cannot be fetched a warning is printed and ids
+// is returned unchanged, so the pull request is still created.
+func addDefaultReviewers(ctx context.Context, ios *cmdutil.IOStreams, client *api.Client, repo string, ids []string) []string {
+	warn := func(format string, args ...any) {
+		fmt.Fprintf(ios.ErrOut, "%s %s (use --no-default-reviewers to skip them)\n",
+			ios.ErrColorScheme().WarningIcon(), fmt.Sprintf(format, args...))
+	}
+
+	defaults, err := client.EffectiveDefaultReviewers(ctx, repo)
+	if err != nil {
+		warn("could not fetch default reviewers, continuing without them: %v", err)
+		return ids
+	}
+	if len(defaults) == 0 {
+		return ids
+	}
+	me, err := client.CurrentUser(ctx)
+	if err != nil {
+		warn("could not determine the current user to leave out of the default reviewers, continuing without them: %v", err)
+		return ids
+	}
+
+	for _, u := range defaults {
+		if matchesUser(u, me.UUID) || matchesUser(u, me.AccountID) {
+			continue
+		}
+		if slices.ContainsFunc(ids, func(id string) bool { return matchesUser(u, id) }) {
+			continue
+		}
+		id := u.UUID
+		if id == "" {
+			id = u.AccountID
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// createdSummary renders the stderr line printed after a pull request is
+// created, e.g. "✓ Created #934 (draft) ft/x → dev · reviewers: Ada, Bob".
+// Branches missing from the response fall back to head and base.
+func createdSummary(ios *cmdutil.IOStreams, pr *api.PullRequest, draft bool, head, base string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s Created #%d", ios.ErrColorScheme().SuccessIcon(), pr.ID)
+	if pr.Draft || draft {
+		b.WriteString(" (draft)")
+	}
+	if name := pr.Source.Branch.Name; name != "" {
+		head = name
+	}
+	if name := pr.Destination.Branch.Name; name != "" {
+		base = name
+	}
+	fmt.Fprintf(&b, " %s", head)
+	if base != "" {
+		fmt.Fprintf(&b, " → %s", base)
+	}
+	if names := userNames(pr.Reviewers); len(names) > 0 {
+		fmt.Fprintf(&b, " · reviewers: %s", strings.Join(names, ", "))
+	}
+	return b.String()
+}
+
+// userNames returns a display name for each user: the display name, else the
+// nickname, else the UUID.
+func userNames(users []api.User) []string {
+	names := make([]string, 0, len(users))
+	for _, u := range users {
+		name := u.DisplayName
+		if name == "" {
+			name = u.Nickname
+		}
+		if name == "" {
+			name = u.UUID
+		}
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // ensurePushed makes sure head is available on the remote before the PR is
@@ -244,7 +375,7 @@ func ensurePushed(ctx context.Context, opts *CreateOptions, gitRunner git.Runner
 	}
 
 	if opts.Push {
-		return git.Push(ctx, gitRunner, remote, head)
+		return pushBranch(ctx, opts.IO, gitRunner, remote, head)
 	}
 
 	upstreamRef := ""
@@ -270,7 +401,7 @@ func ensurePushed(ctx context.Context, opts *CreateOptions, gitRunner git.Runner
 			if !ok {
 				return cmdutil.ErrCancel
 			}
-			return git.Push(ctx, gitRunner, remote, head)
+			return pushBranch(ctx, opts.IO, gitRunner, remote, head)
 		}
 		// The branch exists on the remote but is not tracked; still compare
 		// with the remote-tracking ref so unpushed commits are reported.
@@ -286,6 +417,21 @@ func ensurePushed(ctx context.Context, opts *CreateOptions, gitRunner git.Runner
 		fmt.Fprintf(opts.IO.ErrOut, "%s local branch is %s ahead of %s; run with --push to update it\n",
 			cs.WarningIcon(), pluralize(ahead, "commit"), upstreamRef)
 	}
+	return nil
+}
+
+// pushBranch pushes head to remote and sets it as the upstream. On a terminal
+// git's progress is shown as usual; otherwise (scripts, agents) the push is
+// quiet, git's output is only surfaced in the error when it fails, and a
+// single confirmation line is printed to stderr.
+func pushBranch(ctx context.Context, ios *cmdutil.IOStreams, gitRunner git.Runner, remote, head string) error {
+	if ios.IsStdoutTTY() {
+		return git.Push(ctx, gitRunner, remote, head)
+	}
+	if err := git.PushQuiet(ctx, gitRunner, remote, head); err != nil {
+		return err
+	}
+	fmt.Fprintf(ios.ErrOut, "%s Pushed %s to %s\n", ios.ErrColorScheme().SuccessIcon(), head, remote)
 	return nil
 }
 

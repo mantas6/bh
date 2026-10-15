@@ -286,6 +286,51 @@ Build   SUCCESSFUL  about an hour ago  https://ci.example.com/build/42
 Test    SUCCESSFUL  about an hour ago  https://ci.example.com/test/42
 ```
 
+### Creating and editing pull requests
+
+`bh pr create` and `bh pr edit` print the pull request URL as the only line on
+standard output, so `url=$(bh pr create ...)` works. A one-line summary goes to
+standard error:
+
+```console
+$ # run by a script or agent, so standard output is not a terminal
+$ bh pr create --push --draft --title "Add login form"
+✓ Pushed ft/login to origin
+https://bitbucket.org/myws/myrepo/pull-requests/934
+✓ Created #934 (draft) ft/login → dev · reviewers: Ada Lovelace, Bob
+
+$ bh pr edit 934 --title "Add login form" --base main --ready
+https://bitbucket.org/myws/myrepo/pull-requests/934
+✓ Updated #934: title, base, ready
+```
+
+**Base branch.** Without `--base`, `bh pr create` targets the first of:
+
+1. `git config bh.base` (the repository's config, then your global config),
+2. the `BH_BASE` environment variable,
+3. the repository's main branch (Bitbucket's default).
+
+For a repository where pull requests go to `dev` rather than the main branch:
+
+```sh
+git config bh.base dev
+```
+
+**Default reviewers.** Bitbucket only applies a repository's default reviewers
+when a pull request is created in the web UI, so `bh pr create` adds them
+itself: it fetches the repository's effective default reviewers (including
+those inherited from its project), leaves out you (the author), and merges them
+after the `--reviewer` list. Pass `--no-default-reviewers` to leave them out.
+If they cannot be fetched (for example the token lacks a scope, HTTP 403), a
+warning is printed and the pull request is created without them.
+
+**Pushing.** With `--push` (or when you confirm the push prompt) the branch is
+pushed to its upstream remote, or `origin`. On a terminal git's own output is
+shown; when standard output is not a terminal the push runs with `--quiet`, its
+output (including Bitbucket's `remote:` banners) is captured and shown only if
+the push fails, and `✓ Pushed <branch> to <remote>` is printed to standard
+error instead.
+
 ### Comment threads
 
 `bh pr comment list` prints the comment threads oldest first, each comment as
@@ -433,6 +478,12 @@ bh pr view 123 --unresolved
 # Create a pull request, filling title and body from commits
 bh pr create --fill --base main --reviewer alice,bob
 
+# Make pull requests in this repository target dev by default
+git config bh.base dev
+
+# Create a pull request without the repository's default reviewers
+bh pr create --push --title "Fix typo" --no-default-reviewers
+
 # Add a reviewer by {uuid} or account ID (skips the workspace member lookup)
 bh pr edit 123 --add-reviewer '{a1b2c3d4-e5f6-7890-abcd-ef1234567890}'
 
@@ -494,6 +545,7 @@ permissions on an existing file.
 | `BH_TOKEN` | API token override; takes precedence over the stored token and email |
 | `BH_EMAIL` | Atlassian email paired with `BH_TOKEN` for Basic auth (ignored without `BH_TOKEN`) |
 | `BH_REPO` | Default repository (`ws/repo`) when no `-R` flag is given |
+| `BH_BASE` | Default base branch for `bh pr create` when `--base` is not given and `git config bh.base` is unset |
 | `BH_CONFIG_DIR` | Override the configuration directory |
 | `XDG_CONFIG_HOME` | Base config directory when `BH_CONFIG_DIR` is unset |
 | `BROWSER` | Command used to open URLs for `--web` (see below) |

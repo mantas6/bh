@@ -304,6 +304,23 @@ func TestInteractiveArgs(t *testing.T) {
 	}
 }
 
+func TestPushQuiet(t *testing.T) {
+	t.Parallel()
+	s := gittest.New(t).Expect("push", "--quiet", "-u", "--end-of-options", "origin", "feature")
+	if err := git.PushQuiet(t.Context(), s, "origin", "feature"); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Interactive()) != 0 {
+		t.Errorf("quiet push must capture output, got interactive calls %q", s.InteractiveStrings())
+	}
+
+	denied := &git.Error{Args: []string{"push"}, ExitCode: 1, Stderr: "remote: denied"}
+	s = gittest.New(t).Register("", denied, "push", "--quiet", "-u", "--end-of-options", "origin", "feature")
+	if err := git.PushQuiet(t.Context(), s, "origin", "feature"); !errors.Is(err, denied) {
+		t.Errorf("err = %v, want the git error with stderr", err)
+	}
+}
+
 // gitClient returns a real git Client isolated from the user's and system
 // git configuration, skipping the test when git is not installed.
 func gitClient(t *testing.T, dir string) *git.Client {
