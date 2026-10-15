@@ -79,19 +79,75 @@ func TestBuildThreadsOrphanReplyBecomesRoot(t *testing.T) {
 	}
 }
 
-func TestThreadsFlatten(t *testing.T) {
+func TestThreadsJSON(t *testing.T) {
+	t.Parallel()
+	comments := sampleThreads()
+	ts := BuildThreads(comments, false)
+
+	got := ts.JSON(comments)
+	type derived struct {
+		id, thread int
+		resolved   bool
+		reply      bool
+	}
+	var have []derived
+	for _, c := range got {
+		have = append(have, derived{c.ID, c.ThreadID, c.Resolved, c.IsReply})
+	}
+	// API order is preserved and the deleted #5 is dropped. Replies of the
+	// resolved thread #1 inherit its resolution and thread id.
+	want := []derived{
+		{4, 1, true, true},
+		{2, 1, true, true},
+		{3, 3, false, false},
+		{1, 1, true, false},
+	}
+	if len(have) != len(want) {
+		t.Fatalf("got %+v, want %+v", have, want)
+	}
+	for i := range want {
+		if have[i] != want[i] {
+			t.Errorf("comment %d: got %+v, want %+v", i, have[i], want[i])
+		}
+	}
+}
+
+func TestThreadsJSONLimitedRoots(t *testing.T) {
 	t.Parallel()
 	comments := sampleThreads()
 	ts := BuildThreads(comments, false)
 	ts.Roots = ts.Roots[:1] // keep thread #1 only
 
 	var ids []int
-	for _, c := range ts.Flatten(comments) {
+	for _, c := range ts.JSON(comments) {
 		ids = append(ids, c.ID)
 	}
 	// API order is preserved: nested (#4), reply (#2), root (#1).
 	if len(ids) != 3 || ids[0] != 4 || ids[1] != 2 || ids[2] != 1 {
 		t.Errorf("ids = %v, want [4 2 1]", ids)
+	}
+}
+
+func TestThreadsJSONEmptyIsNonNil(t *testing.T) {
+	t.Parallel()
+	if got := BuildThreads(nil, false).JSON(nil); got == nil {
+		t.Error("JSON(nil) = nil, want empty slice")
+	}
+}
+
+func TestThreadsJSONOrphanReply(t *testing.T) {
+	t.Parallel()
+	parent := cmdtest.CommentAt(1, "ada", "parent", 60)
+	parent.Deleted = true
+	orphan := cmdtest.CommentAt(2, "bob", "orphan", 30)
+	orphan.Parent = &api.CommentRef{ID: 1}
+
+	got := BuildThreads([]api.Comment{parent, orphan}, false).JSON([]api.Comment{parent, orphan})
+	if len(got) != 1 || got[0].ThreadID != 2 || got[0].IsReply {
+		t.Fatalf("got %+v, want orphan #2 as its own thread", got)
+	}
+	if got[0].Parent == nil || got[0].Parent.ID != 1 {
+		t.Errorf("raw parent should be kept, got %+v", got[0].Parent)
 	}
 }
 

@@ -42,10 +42,16 @@ func (c *Client) ListPullRequests(ctx context.Context, repo string, opts ListPRO
 	return prs, err
 }
 
+// listPRFields asks the list endpoint for the fields it leaves out by
+// default, so listed pull requests (and those found by branch) carry their
+// reviewers and participants like a single fetched pull request does.
+const listPRFields = "+values.reviewers,+values.participants"
+
 // ListPullRequestsInfo is ListPullRequests that also returns the PageInfo,
 // telling whether opts.Limit cut the list short.
 func (c *Client) ListPullRequestsInfo(ctx context.Context, repo string, opts ListPROptions) ([]PullRequest, PageInfo, error) {
 	q := url.Values{}
+	q.Set("fields", listPRFields)
 	for _, s := range opts.State {
 		if s != "" {
 			q.Add("state", s)

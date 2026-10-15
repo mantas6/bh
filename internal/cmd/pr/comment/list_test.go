@@ -159,6 +159,77 @@ func TestListJSON(t *testing.T) {
 	}
 }
 
+func TestListJSONDerivedFields(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	root := cmdtest.CommentAt(1, "ada", "Rename this", 60)
+	root.Inline = &api.Inline{Path: "main.go", To: new(42)}
+	root.Resolution = &api.Resolution{Type: "resolved"}
+	reply := cmdtest.CommentAt(2, "bob", "Done", 30)
+	reply.Parent = &api.CommentRef{ID: 1}
+	general := cmdtest.CommentAt(3, "cara", "Why?", 10)
+	listComments(srv, []api.Comment{root, reply, general})
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newListOpts(t, srv, ios)
+	opts.JSON = true
+	if err := listRun(t.Context(), opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+
+	var got []map[string]any
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d comments, want 3:\n%s", len(got), out.String())
+	}
+	want := []struct {
+		id, thread float64
+		resolved   bool
+		reply      bool
+	}{
+		{1, 1, true, false},
+		{2, 1, true, true},
+		{3, 3, false, false},
+	}
+	for i, w := range want {
+		c := got[i]
+		if c["id"] != w.id || c["thread_id"] != w.thread || c["resolved"] != w.resolved || c["is_reply"] != w.reply {
+			t.Errorf("comment %d = id %v thread_id %v resolved %v is_reply %v, want %+v",
+				i, c["id"], c["thread_id"], c["resolved"], c["is_reply"], w)
+		}
+	}
+	// Raw fields are kept; unset references are omitted, not null.
+	if got[0]["resolution"] == nil || got[0]["inline"] == nil {
+		t.Errorf("root should keep resolution and inline: %#v", got[0])
+	}
+	if got[1]["parent"].(map[string]any)["id"] != float64(1) {
+		t.Errorf("reply should keep parent: %#v", got[1])
+	}
+	for _, key := range []string{"parent", "inline", "resolution"} {
+		if _, ok := got[2][key]; ok {
+			t.Errorf("general comment should omit %q: %#v", key, got[2])
+		}
+	}
+}
+
+func TestListJSONEmptyIsArray(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	listComments(srv, []api.Comment{})
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newListOpts(t, srv, ios)
+	opts.JSON = true
+	if err := listRun(t.Context(), opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	if got := out.String(); got != "[]\n" {
+		t.Errorf("output = %q, want []", got)
+	}
+}
+
 // threadedComments returns two threads: #1 (with replies #2, #3) and #4.
 func threadedComments() []api.Comment {
 	root1 := cmdtest.CommentAt(1, "ada", "first thread", 60)

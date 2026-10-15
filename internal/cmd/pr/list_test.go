@@ -106,6 +106,42 @@ func TestListJSON(t *testing.T) {
 	}
 }
 
+func TestListJSONHygiene(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	// The list endpoint's shape: no reviewers/participants, and nested
+	// repositories with only a few fields.
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, `{"values":[{
+		"id": 7, "title": "x", "state": "OPEN",
+		"source": {"branch": {"name": "ft"}, "repository": {"full_name": "myws/myrepo"}},
+		"destination": {"branch": {"name": "dev"}, "repository": {"full_name": "myws/myrepo"}}
+	}]}`)
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newListOptions(srv)
+	opts.IO = ios
+	opts.JSON = true
+	if err := listRun(t.Context(), opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+
+	got := out.String()
+	for _, want := range []string{`"reviewers": []`, `"participants": []`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %s:\n%s", want, got)
+		}
+	}
+	for _, absent := range []string{`"slug"`, `"mainbranch"`, `"owner"`, `"workspace"`, `"parent"`, `"commit": null`} {
+		if strings.Contains(got, absent) {
+			t.Errorf("%s should not be printed:\n%s", absent, got)
+		}
+	}
+	req := cmdtest.RequireRequest(t, srv, "GET", "/pullrequests")
+	if f := req.Query.Get("fields"); f != "+values.reviewers,+values.participants" {
+		t.Errorf("fields = %q", f)
+	}
+}
+
 func TestListStateAllAuthorMe(t *testing.T) {
 	t.Parallel()
 	srv := apitest.New(t)

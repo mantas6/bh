@@ -81,7 +81,7 @@ func listRun(ctx context.Context, opts *ListOptions) error {
 	}
 
 	if opts.JSON {
-		return cmdutil.PrintJSON(opts.IO.Out, threads.Flatten(comments))
+		return cmdutil.PrintJSON(opts.IO.Out, threads.JSON(comments))
 	}
 
 	if len(threads.Roots) == 0 {

@@ -59,28 +59,57 @@ func BuildThreads(comments []api.Comment, unresolved bool) *Threads {
 // Walk calls fn for every comment in the threads, depth first, with its
 // nesting level.
 func (ts *Threads) Walk(fn func(c *api.Comment, level int)) {
-	var visit func(c *api.Comment, level int)
-	visit = func(c *api.Comment, level int) {
-		fn(c, level)
+	ts.walk(func(c, _ *api.Comment, level int) { fn(c, level) })
+}
+
+// walk is Walk that also passes the root comment of c's thread.
+func (ts *Threads) walk(fn func(c, root *api.Comment, level int)) {
+	var visit func(c, root *api.Comment, level int)
+	visit = func(c, root *api.Comment, level int) {
+		fn(c, root, level)
 		for _, child := range ts.children[c.ID] {
-			visit(child, level+1)
+			visit(child, root, level+1)
 		}
 	}
 	for _, root := range ts.Roots {
-		visit(root, 0)
+		visit(root, root, 0)
 	}
 }
 
-// Flatten returns the comments belonging to the threads, in the API's order.
-func (ts *Threads) Flatten(comments []api.Comment) []api.Comment {
-	include := map[int]bool{}
-	ts.Walk(func(c *api.Comment, _ int) { include[c.ID] = true })
+// CommentJSON is a comment as printed by `bh pr comment list --json`: the
+// raw API fields plus fields derived from the thread it belongs to.
+type CommentJSON struct {
+	api.Comment
+	// Resolved reports whether the comment's thread is resolved. Bitbucket
+	// records the resolution on the thread's top-level comment only; replies
+	// inherit it here.
+	Resolved bool `json:"resolved"`
+	// ThreadID is the id of the top-level comment of the thread, the
+	// comment's own id for a top-level comment.
+	ThreadID int `json:"thread_id"`
+	// IsReply reports whether the comment is nested under another comment
+	// (ThreadID differs from its id).
+	IsReply bool `json:"is_reply"`
+}
 
-	out := make([]api.Comment, 0, len(include))
+// JSON returns the comments belonging to the threads, in the API's order,
+// with their derived thread fields. The result is never nil.
+func (ts *Threads) JSON(comments []api.Comment) []CommentJSON {
+	roots := map[int]*api.Comment{}
+	ts.walk(func(c, root *api.Comment, _ int) { roots[c.ID] = root })
+
+	out := make([]CommentJSON, 0, len(roots))
 	for _, c := range comments {
-		if !c.Deleted && include[c.ID] {
-			out = append(out, c)
+		root, ok := roots[c.ID]
+		if c.Deleted || !ok {
+			continue
 		}
+		out = append(out, CommentJSON{
+			Comment:  c,
+			Resolved: root.Resolution != nil || c.Resolution != nil,
+			ThreadID: root.ID,
+			IsReply:  root.ID != c.ID,
+		})
 	}
 	return out
 }

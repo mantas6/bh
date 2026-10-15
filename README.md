@@ -282,6 +282,37 @@ Build   SUCCESSFUL  about an hour ago  https://ci.example.com/build/42
 Test    SUCCESSFUL  about an hour ago  https://ci.example.com/test/42
 ```
 
+### JSON output
+
+`--json` (on `pr list`, `pr view`, `pr commits`, `pr checks` and
+`pr comment list`) prints Bitbucket's objects with the API's field names.
+Fields Bitbucket only reports in some contexts are left out when absent rather
+than printed as `""`, `false` or `null`: for example the repository nested in a
+pull request's `source`/`destination` carries `uuid`, `name`, `full_name` and
+`links`, but no `slug`, `is_private`, `mainbranch`, `owner`, `workspace` or
+`parent`. Lists are always arrays, `[]` when empty, never `null`: the command
+results themselves, a pull request's `reviewers` and `participants` (which
+`pr list --json` also includes), and a commit's `parents`. Top-level pull
+request fields such as `merge_commit` and `closed_by` stay present and are
+`null` until set.
+
+`bh pr comment list --json` prints the comments of the listed threads in the
+API's order (deleted comments are left out, and `--unresolved` / `--limit`
+apply as in the text view). Each comment keeps the raw API fields (`parent`,
+`inline` and `resolution` are omitted when unset) and adds three derived
+fields:
+
+| Field | Meaning |
+| --- | --- |
+| `resolved` | `true` when the comment's thread is resolved. Bitbucket records the resolution on the thread's top-level comment only; replies inherit it here. |
+| `thread_id` | Id of the thread's top-level comment (the comment's own id for a top-level comment). Resolve or reopen the thread with this id. |
+| `is_reply` | `true` when the comment is nested under another comment, i.e. `thread_id` differs from `id`. A reply whose parent was deleted is shown as its own thread. |
+
+```sh
+# Ids of the unresolved threads
+bh pr comment list 123 --json | jq '[.[] | select((.is_reply or .resolved) | not) | .id]'
+```
+
 ## Usage examples
 
 ```sh

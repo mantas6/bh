@@ -270,6 +270,18 @@ func TestPrintJSON(t *testing.T) {
 	}
 }
 
+func TestPrintJSONNilSliceIsEmptyArray(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	var none []string
+	if err := PrintJSON(&buf, none); err != nil {
+		t.Fatalf("PrintJSON: %v", err)
+	}
+	if got := buf.String(); got != "[]\n" {
+		t.Errorf("got %q, want %q", got, "[]\n")
+	}
+}
+
 func TestHeredoc(t *testing.T) {
 	t.Parallel()
 	got := Heredoc(`

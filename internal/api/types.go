@@ -1,6 +1,21 @@
 package api
 
-import "time"
+import (
+	"bytes"
+	"encoding/json"
+	"time"
+)
+
+// JSON encoding conventions for the types in this package, which bh prints
+// with --json:
+//
+//   - Fields Bitbucket only sends in some contexts (for example the
+//     repository's slug, owner or main branch, which are absent from the
+//     repository reference nested in a pull request) are omitted when unset
+//     instead of being printed as "", false or null.
+//   - List fields that are part of an object's shape (pull request reviewers
+//     and participants, commit parents) always encode as an array, [] when
+//     empty, never as null.
 
 // Link is a single hypermedia link.
 type Link struct {
@@ -15,47 +30,52 @@ type CloneLink struct {
 
 // Links is the common `links` object.
 type Links struct {
-	HTML  Link        `json:"html"`
-	Self  Link        `json:"self"`
-	Clone []CloneLink `json:"clone"`
+	HTML  Link        `json:"html,omitzero"`
+	Self  Link        `json:"self,omitzero"`
+	Clone []CloneLink `json:"clone,omitempty"`
 }
 
 // User is a Bitbucket account.
 type User struct {
-	UUID        string `json:"uuid"`
-	AccountID   string `json:"account_id"`
-	Nickname    string `json:"nickname"`
-	DisplayName string `json:"display_name"`
-	Type        string `json:"type"`
-	Links       Links  `json:"links"`
+	UUID        string `json:"uuid,omitempty"`
+	AccountID   string `json:"account_id,omitempty"`
+	Nickname    string `json:"nickname,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	Type        string `json:"type,omitempty"`
+	Links       Links  `json:"links,omitzero"`
 }
 
 // Workspace is a Bitbucket workspace.
 type Workspace struct {
-	UUID string `json:"uuid"`
-	Slug string `json:"slug"`
-	Name string `json:"name"`
+	UUID string `json:"uuid,omitempty"`
+	Slug string `json:"slug,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
-// Branch is a repository branch / merge configuration.
+// Branch is a repository branch / merge configuration. The merge strategy
+// fields are only reported for some branch references (such as a pull
+// request's destination).
 type Branch struct {
 	Name                 string   `json:"name"`
-	DefaultMergeStrategy string   `json:"default_merge_strategy"`
-	MergeStrategies      []string `json:"merge_strategies"`
+	DefaultMergeStrategy string   `json:"default_merge_strategy,omitempty"`
+	MergeStrategies      []string `json:"merge_strategies,omitempty"`
 }
 
-// Repository is a Bitbucket repository.
+// Repository is a Bitbucket repository. The repository reference nested in
+// a pull request only carries uuid, name, full_name and links; the other
+// fields are set when the repository itself is fetched. IsPrivate is a
+// pointer so an unreported visibility is not mistaken for "public".
 type Repository struct {
-	UUID       string      `json:"uuid"`
-	Name       string      `json:"name"`
-	FullName   string      `json:"full_name"`
-	Slug       string      `json:"slug"`
-	IsPrivate  bool        `json:"is_private"`
-	MainBranch *Branch     `json:"mainbranch"`
-	Links      Links       `json:"links"`
-	Owner      *User       `json:"owner"`
-	Workspace  *Workspace  `json:"workspace"`
-	Parent     *Repository `json:"parent"`
+	UUID       string      `json:"uuid,omitempty"`
+	Name       string      `json:"name,omitempty"`
+	FullName   string      `json:"full_name,omitempty"`
+	Slug       string      `json:"slug,omitempty"`
+	IsPrivate  *bool       `json:"is_private,omitempty"`
+	MainBranch *Branch     `json:"mainbranch,omitempty"`
+	Links      Links       `json:"links,omitzero"`
+	Owner      *User       `json:"owner,omitempty"`
+	Workspace  *Workspace  `json:"workspace,omitempty"`
+	Parent     *Repository `json:"parent,omitempty"`
 }
 
 // Commit is a minimal commit reference.
@@ -77,7 +97,15 @@ type PRCommit struct {
 	Message string       `json:"message"`
 	Author  CommitAuthor `json:"author"`
 	Parents []Commit     `json:"parents"`
-	Links   Links        `json:"links"`
+	Links   Links        `json:"links,omitzero"`
+}
+
+// MarshalJSON encodes c with Parents as [] rather than null when empty.
+func (c PRCommit) MarshalJSON() ([]byte, error) {
+	type plain PRCommit
+	p := plain(c)
+	p.Parents = nonNil(p.Parents)
+	return marshalNoEscape(p)
 }
 
 // DiffStatFile is one side (old or new) of a diffstat entry.
@@ -122,8 +150,8 @@ type CommitStatus struct {
 // PRRef is a pull request source/destination endpoint.
 type PRRef struct {
 	Branch     Branch      `json:"branch"`
-	Commit     *Commit     `json:"commit"`
-	Repository *Repository `json:"repository"`
+	Commit     *Commit     `json:"commit,omitempty"`
+	Repository *Repository `json:"repository,omitempty"`
 }
 
 // Participant is a pull request participant (reviewer/approver).
@@ -132,7 +160,7 @@ type Participant struct {
 	Role           string     `json:"role"`
 	Approved       bool       `json:"approved"`
 	State          string     `json:"state"`
-	ParticipatedOn *time.Time `json:"participated_on"`
+	ParticipatedOn *time.Time `json:"participated_on,omitempty"`
 }
 
 // PullRequest is a Bitbucket pull request.
@@ -155,7 +183,17 @@ type PullRequest struct {
 	MergeCommit       *Commit       `json:"merge_commit"`
 	ClosedBy          *User         `json:"closed_by"`
 	Reason            string        `json:"reason"`
-	Links             Links         `json:"links"`
+	Links             Links         `json:"links,omitzero"`
+}
+
+// MarshalJSON encodes pr with Reviewers and Participants as [] rather than
+// null when empty or not reported.
+func (pr PullRequest) MarshalJSON() ([]byte, error) {
+	type plain PullRequest
+	p := plain(pr)
+	p.Reviewers = nonNil(p.Reviewers)
+	p.Participants = nonNil(p.Participants)
+	return marshalNoEscape(p)
 }
 
 // Content is rendered comment content.
@@ -173,18 +211,19 @@ type CommentRef struct {
 // Inline describes an inline (file/line) comment anchor.
 type Inline struct {
 	Path string `json:"path"`
-	To   *int   `json:"to"`
-	From *int   `json:"from"`
+	To   *int   `json:"to,omitempty"`
+	From *int   `json:"from,omitempty"`
 }
 
 // Resolution is a comment resolution marker.
 type Resolution struct {
 	Type      string     `json:"type"`
-	User      *User      `json:"user"`
-	CreatedOn *time.Time `json:"created_on"`
+	User      *User      `json:"user,omitempty"`
+	CreatedOn *time.Time `json:"created_on,omitempty"`
 }
 
-// Comment is a pull request comment.
+// Comment is a pull request comment. Resolution, Parent and Inline are
+// omitted from JSON when unset (unresolved, top-level, general comment).
 type Comment struct {
 	ID         int         `json:"id"`
 	Content    Content     `json:"content"`
@@ -193,10 +232,10 @@ type Comment struct {
 	UpdatedOn  time.Time   `json:"updated_on"`
 	Deleted    bool        `json:"deleted"`
 	Pending    bool        `json:"pending"`
-	Resolution *Resolution `json:"resolution"`
-	Parent     *CommentRef `json:"parent"`
-	Inline     *Inline     `json:"inline"`
-	Links      Links       `json:"links"`
+	Resolution *Resolution `json:"resolution,omitempty"`
+	Parent     *CommentRef `json:"parent,omitempty"`
+	Inline     *Inline     `json:"inline,omitempty"`
+	Links      Links       `json:"links,omitzero"`
 }
 
 // WorkspaceMember is an entry from the workspace members list.
@@ -210,4 +249,26 @@ type MergeTaskStatus struct {
 	TaskStatus  string       `json:"task_status"`
 	MergeResult *PullRequest `json:"merge_result"`
 	TaskID      string       `json:"task_id"`
+}
+
+// nonNil returns s, or an empty non-nil slice when s is nil, so it encodes
+// as [] instead of null.
+func nonNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
+}
+
+// marshalNoEscape encodes v like json.Marshal but without HTML escaping, so
+// a MarshalJSON method does not turn "<", ">" and "&" into \u003c etc. when
+// the caller's encoder has escaping turned off.
+func marshalNoEscape(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
