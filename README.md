@@ -177,6 +177,17 @@ are tab-separated and the time is an RFC 3339 timestamp. `--base` (`-B`) and
 error (the total is included when Bitbucket reports it); `--json` output never
 gets the notice.
 
+`--search` (`-s`) takes a Bitbucket
+[BBQL](https://developer.atlassian.com/cloud/bitbucket/rest/intro/#filtering)
+query such as `'title ~ "SUPER-123"'`, which is passed through unchanged
+(parenthesised when combined with other filters). A value without any BBQL
+operator (`~`, `=`, `!=`, `>`, `<`, ` AND `, ` OR `) is treated as plain text
+and matched against the title, description and source branch, so
+`--search 4304` becomes
+`(title ~ "4304" OR description ~ "4304" OR source.branch.name ~ "4304")`
+(quotes and backslashes are escaped). When Bitbucket rejects the query
+(HTTP 400), the error carries a hint pointing at the BBQL docs.
+
 ```console
 $ bh pr list --base dev
 #934  Add login form   ft/login → dev   ada   OPEN  about 3 hours ago
@@ -468,6 +479,10 @@ bh pr list --state all --author @me
 # List pull requests into dev, or the one(s) from a given branch
 bh pr list --base dev
 bh pr list --state all --head ft/login
+
+# Search title, description and branch for plain text, or pass BBQL
+bh pr list --state all --search 4304
+bh pr list --search 'title ~ "SUPER-123" AND author.nickname = "ada"'
 
 # View the pull request for the current branch
 bh pr view

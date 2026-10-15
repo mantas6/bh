@@ -214,13 +214,14 @@ func TestErrorMapping(t *testing.T) {
 func TestStatusPredicates(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		status                            int
-		notFound, unauthorized, forbidden bool
+		status                                        int
+		notFound, unauthorized, forbidden, badRequest bool
 	}{
-		{401, false, true, false},
-		{403, false, false, true},
-		{404, true, false, false},
-		{500, false, false, false},
+		{400, false, false, false, true},
+		{401, false, true, false, false},
+		{403, false, false, true, false},
+		{404, true, false, false, false},
+		{500, false, false, false, false},
 	}
 	for _, tt := range tests {
 		err := fmt.Errorf("wrapped: %w", &api.HTTPError{StatusCode: tt.status})
@@ -233,8 +234,11 @@ func TestStatusPredicates(t *testing.T) {
 		if got := api.IsForbidden(err); got != tt.forbidden {
 			t.Errorf("IsForbidden(%d) = %v", tt.status, got)
 		}
+		if got := api.IsBadRequest(err); got != tt.badRequest {
+			t.Errorf("IsBadRequest(%d) = %v", tt.status, got)
+		}
 	}
-	if api.IsNotFound(errors.New("x")) || api.IsUnauthorized(nil) || api.IsForbidden(nil) {
+	if api.IsNotFound(errors.New("x")) || api.IsUnauthorized(nil) || api.IsForbidden(nil) || api.IsBadRequest(nil) {
 		t.Error("predicates should be false for non-HTTP errors")
 	}
 }

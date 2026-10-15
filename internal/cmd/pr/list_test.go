@@ -168,8 +168,8 @@ func TestListStateAllAuthorMe(t *testing.T) {
 	if !strings.Contains(q, `author.uuid="{me-uuid}"`) {
 		t.Errorf("q missing author: %q", q)
 	}
-	if !strings.HasSuffix(q, " AND (fix)") {
-		t.Errorf("q missing parenthesised search: %q", q)
+	if want := ` AND (title ~ "fix" OR description ~ "fix" OR source.branch.name ~ "fix")`; !strings.HasSuffix(q, want) {
+		t.Errorf("q = %q, want suffix %q", q, want)
 	}
 }
 
@@ -188,6 +188,131 @@ func TestListSearchAloneNotParenthesised(t *testing.T) {
 	}
 	if q := cmdtest.RequireRequest(t, srv, "GET", "/pullrequests").Query.Get("q"); q != `title ~ "x"` {
 		t.Errorf("q = %q", q)
+	}
+}
+
+func TestListSearchPlainTextWrapped(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name, search, want string
+	}{
+		{"number", "4304", `(title ~ "4304" OR description ~ "4304" OR source.branch.name ~ "4304")`},
+		{"words trimmed", "  fix login ", `(title ~ "fix login" OR description ~ "fix login" OR source.branch.name ~ "fix login")`},
+		{"lowercase and/or are text", "this or that", `(title ~ "this or that" OR description ~ "this or that" OR source.branch.name ~ "this or that")`},
+		{"quote and backslash escaped", `a"b\c`, `(title ~ "a\"b\\c" OR description ~ "a\"b\\c" OR source.branch.name ~ "a\"b\\c")`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := apitest.New(t)
+			srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, cmdtest.ValuesPage([]api.PullRequest{}))
+
+			ios, _, _, _ := cmdutil.TestIOStreams()
+			opts := newListOptions(srv)
+			opts.IO = ios
+			opts.Search = tt.search
+
+			if err := listRun(t.Context(), opts); err != nil {
+				t.Fatalf("listRun: %v", err)
+			}
+			if q := cmdtest.RequireRequest(t, srv, "GET", "/pullrequests").Query.Get("q"); q != tt.want {
+				t.Errorf("q = %s, want %s", q, tt.want)
+			}
+		})
+	}
+}
+
+func TestListSearchPlainTextWithFilters(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, cmdtest.ValuesPage([]api.PullRequest{}))
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := newListOptions(srv)
+	opts.IO = ios
+	opts.Base = "dev"
+	opts.Search = "SUPER-1"
+
+	if err := listRun(t.Context(), opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	want := `destination.branch.name="dev" AND (title ~ "SUPER-1" OR description ~ "SUPER-1" OR source.branch.name ~ "SUPER-1")`
+	if q := cmdtest.RequireRequest(t, srv, "GET", "/pullrequests").Query.Get("q"); q != want {
+		t.Errorf("q = %s, want %s", q, want)
+	}
+}
+
+func TestListSearchBBQLPassedThrough(t *testing.T) {
+	t.Parallel()
+	for _, search := range []string{
+		`title ~ "x"`,
+		`id=4304`,
+		`id != 1`,
+		`id > 10`,
+		`created_on < 2026-01-01`,
+		`state = "OPEN" AND id>1`,
+		`title ~ "a" OR title ~ "b"`,
+	} {
+		t.Run(search, func(t *testing.T) {
+			t.Parallel()
+			srv := apitest.New(t)
+			srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 200, cmdtest.ValuesPage([]api.PullRequest{}))
+
+			ios, _, _, _ := cmdutil.TestIOStreams()
+			opts := newListOptions(srv)
+			opts.IO = ios
+			opts.Search = search
+
+			if err := listRun(t.Context(), opts); err != nil {
+				t.Fatalf("listRun: %v", err)
+			}
+			if q := cmdtest.RequireRequest(t, srv, "GET", "/pullrequests").Query.Get("q"); q != search {
+				t.Errorf("q = %q, want %q", q, search)
+			}
+		})
+	}
+}
+
+func TestListSearchBadRequestHint(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 400,
+		`{"type":"error","error":{"message":"Invalid filter query expression: Syntax error in input at 'x' (type _ANON_14) line 1 col 1"}}`)
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := newListOptions(srv)
+	opts.IO = ios
+	opts.Search = `title ~ x`
+
+	err := listRun(t.Context(), opts)
+	if !api.IsBadRequest(err) {
+		t.Fatalf("err = %v, want a 400", err)
+	}
+	if !strings.Contains(err.Error(), "Invalid filter query expression") {
+		t.Errorf("err = %q, want the API message", err)
+	}
+	hint := cmdutil.HintFor(err)
+	if !strings.Contains(hint, "--search takes BBQL") ||
+		!strings.Contains(hint, "https://developer.atlassian.com/cloud/bitbucket/rest/intro/#filtering") {
+		t.Errorf("hint = %q", hint)
+	}
+}
+
+func TestListBadRequestWithoutSearchNoHint(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests", 400, `{"type":"error","error":{"message":"bad"}}`)
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := newListOptions(srv)
+	opts.IO = ios
+
+	err := listRun(t.Context(), opts)
+	if !api.IsBadRequest(err) {
+		t.Fatalf("err = %v, want a 400", err)
+	}
+	if hint := cmdutil.HintFor(err); strings.Contains(hint, "--search") {
+		t.Errorf("hint = %q, want no --search hint", hint)
 	}
 }
 

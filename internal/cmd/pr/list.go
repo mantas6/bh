@@ -54,6 +54,12 @@ state and when the pull request was last updated. When stdout is not a
 terminal the fields are tab-separated and the update time is an absolute
 RFC 3339 timestamp.
 
+--search takes a Bitbucket BBQL query such as 'title ~ "SUPER-123"'. A
+value without any BBQL operator (~ = != > < AND OR) is treated as plain
+text and matched against the title, description and source branch, so
+--search 4304 works as expected. See
+` + bbqlDocsURL + `
+
 When more pull requests match than --limit allows, a notice saying so is
 printed on stderr (not with --json).`,
 		Aliases: []string{"ls"},
@@ -72,7 +78,7 @@ printed on stderr (not with --json).`,
 	cmd.Flags().StringVar(&opts.State, "state", "open", "Filter by state: {open|merged|declined|superseded|all}")
 	cmd.Flags().IntVarP(&opts.Limit, "limit", "L", 30, "Maximum number of pull requests to fetch")
 	cmd.Flags().StringVar(&opts.Author, "author", "", "Filter by author (@me or a nickname)")
-	cmd.Flags().StringVarP(&opts.Search, "search", "s", "", "Search pull requests with a query")
+	cmd.Flags().StringVarP(&opts.Search, "search", "s", "", `Filter with a Bitbucket BBQL query, e.g. 'title ~ "SUPER-123"'; plain text searches title, description and branch`)
 	cmd.Flags().StringVarP(&opts.Base, "base", "B", "", "Filter by destination branch")
 	cmd.Flags().StringVarP(&opts.Head, "head", "H", "", "Filter by source branch")
 	cmdutil.AddJSONFlags(cmd, &opts.JSON, &opts.JSONOutput, reflect.TypeFor[api.PullRequest](), "pull requests")
@@ -116,11 +122,14 @@ func listRun(ctx context.Context, opts *ListOptions) error {
 		qparts = append(qparts, "source.branch.name="+api.QuoteBBQL(opts.Head))
 	}
 	if opts.Search != "" {
-		// The search is raw BBQL; parenthesise it so an OR inside it cannot
-		// escape the other filters.
-		if len(qparts) > 0 {
+		switch {
+		case !looksLikeBBQL(opts.Search):
+			qparts = append(qparts, plainTextSearch(opts.Search))
+		case len(qparts) > 0:
+			// Raw BBQL; parenthesise it so an OR inside it cannot escape
+			// the other filters.
 			qparts = append(qparts, "("+opts.Search+")")
-		} else {
+		default:
 			qparts = append(qparts, opts.Search)
 		}
 	}
@@ -131,6 +140,9 @@ func listRun(ctx context.Context, opts *ListOptions) error {
 		Limit: opts.Limit,
 	})
 	if err != nil {
+		if opts.Search != "" && api.IsBadRequest(err) {
+			return cmdutil.WithHint(err, "--search takes BBQL, e.g. --search 'title ~ \"SUPER-123\"'; see "+bbqlDocsURL)
+		}
 		return err
 	}
 
@@ -186,6 +198,31 @@ func listRun(ctx context.Context, opts *ListOptions) error {
 		fmt.Fprintln(opts.IO.ErrOut, truncationNotice(len(prs), info.Total))
 	}
 	return nil
+}
+
+// bbqlDocsURL documents the BBQL syntax --search accepts.
+const bbqlDocsURL = "https://developer.atlassian.com/cloud/bitbucket/rest/intro/#filtering"
+
+// bbqlOperators are the substrings whose presence makes a --search value
+// BBQL rather than plain text. "!=" is covered by "=".
+var bbqlOperators = []string{"~", "=", ">", "<", " AND ", " OR "}
+
+// looksLikeBBQL reports whether a --search value contains a BBQL operator and
+// should be passed through verbatim.
+func looksLikeBBQL(s string) bool {
+	for _, op := range bbqlOperators {
+		if strings.Contains(s, op) {
+			return true
+		}
+	}
+	return false
+}
+
+// plainTextSearch turns plain --search text into a BBQL clause matching it
+// against the title, description and source branch name.
+func plainTextSearch(s string) string {
+	v := api.QuoteBBQL(strings.TrimSpace(s))
+	return "(title ~ " + v + " OR description ~ " + v + " OR source.branch.name ~ " + v + ")"
 }
 
 // mapStates converts a --state value into the API's uppercase state list.

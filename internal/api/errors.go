@@ -191,6 +191,12 @@ func hasStatus(err error, status int) bool {
 	return errors.As(err, &he) && he.StatusCode == status
 }
 
+// IsBadRequest reports whether err is a 400 HTTPError, e.g. an invalid BBQL
+// filter query.
+func IsBadRequest(err error) bool {
+	return hasStatus(err, http.StatusBadRequest)
+}
+
 // IsNotFound reports whether err is a 404 HTTPError.
 func IsNotFound(err error) bool {
 	return hasStatus(err, http.StatusNotFound)
