@@ -60,6 +60,22 @@ func NewCmdEdit(f *cmdutil.Factory, runF func(*EditOptions) error) *cobra.Comman
 			The pull request URL is the only line printed on standard output; a
 			summary of what changed goes to standard error.
 		`),
+		Example: cmdutil.Examples(`
+			# Retarget the pull request for the current branch at dev
+			$ bh pr edit --base dev
+
+			# New title and reviewers for pull request 123
+			$ bh pr edit 123 --title "Add login form" --add-reviewer alice,bob
+
+			# Replace the description from standard input
+			$ bh pr edit 123 --body-file - <<'EOF'
+			## Summary
+			Adds the login form.
+			EOF
+
+			# Mark a draft as ready for review
+			$ bh pr edit 123 --ready
+		`),
 		Args: cmdutil.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {

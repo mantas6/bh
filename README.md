@@ -2,8 +2,10 @@
 
 `bh` is a [`gh`](https://cli.github.com/)-style command line interface for
 Bitbucket Cloud. It brings a familiar, terminal-first workflow to Bitbucket
-pull requests: list, view, create, edit, check out, review, merge, decline, and
-comment on pull requests without leaving your shell.
+pull requests: list, view, diff, create, edit, check out, review, merge,
+decline, follow their build checks and comment on pull requests without leaving
+your shell. It is built to be scripted and driven by AI agents too; see
+[Using bh from AI agents](#using-bh-from-ai-agents).
 
 It targets the Bitbucket Cloud REST 2.0 API (`https://api.bitbucket.org/2.0`).
 Bitbucket Data Center is not supported.
@@ -131,6 +133,7 @@ The following remote URL forms are recognized:
 | `bh pr comment delete` | Delete a pull request comment |
 | `bh pr comment resolve` | Resolve one or more pull request comment threads |
 | `bh pr comment reopen` | Reopen (unresolve) one or more pull request comment threads |
+| `bh reference` | Print every command with its usage line and flags (also `bh help reference`) |
 | `bh version` | Show the bh version (also `bh --version`) |
 
 `pr list`, `pr view`, `pr commits`, `pr checks` and `pr comment list` take
@@ -142,7 +145,9 @@ is). For most commands it may be omitted to use the pull request for the
 current branch; `bh pr checkout` and `bh pr comment reply|delete|resolve|reopen`
 require it.
 
-Run `bh <command> --help` for the full flag list of any command.
+Run `bh <command> --help` for the description, flags and examples of any
+command, or `bh help reference` for the usage line and flags of every command
+in one markdown-formatted stream.
 
 An unknown subcommand is a usage error: bh exits non-zero, suggests close
 matches, and for commands that do not exist (such as `bh pr comments` or
@@ -168,8 +173,9 @@ bh: unknown command "comments" for "bh pr"; Did you mean "comment" or "commits"?
 ```
 
 `bh pr list` prints one row per pull request: number, title,
-`source → destination` branches, author, state and last update. On a terminal the update time is relative; otherwise the fields
-are tab-separated and the time is an RFC 3339 timestamp. `--base` (`-B`) and
+`source → destination` branches, author, state and last update. On a terminal
+the update time is relative; otherwise the fields are tab-separated and the
+time is an RFC 3339 timestamp. `--base` (`-B`) and
 `--head` (`-H`) filter by destination and source branch, and combine with
 `--state`, `--author` and `--search`. When more pull requests match than
 `--limit` (`-L`, default 30) allows, a notice such as
@@ -203,8 +209,8 @@ reads `merged` / `declined` instead of `wants to merge` for closed pull
 requests. The line after it shows the source (`Head:`) and destination
 (`Base:`) commits as short hashes, the base branch, and the last update time as
 an RFC 3339 timestamp in the local time zone (followed by the relative time on
-a terminal); a hash Bitbucket did not report is left out. When builds have reported on the pull request, a `Checks:` line
-counts their latest states (see `bh pr checks`); it is left out when there are
+a terminal); a hash Bitbucket did not report is left out. When builds have
+reported on the pull request, a `Checks:` line counts their latest states (see `bh pr checks`); it is left out when there are
 none or the statuses cannot be fetched. `--json` prints only the pull request
 object and does not fetch build statuses.
 
@@ -365,7 +371,8 @@ combined:
 `--top-level` then leaves out the replies, and `--limit N` (`-L`) keeps the
 **newest** N threads (by when they were started), still printed oldest first
 (earlier versions kept the oldest threads), so `bh pr comment list -L 3` shows
-the latest discussion without piping through `tail`. `--json` prints the comments of the selected threads (see below).
+the latest discussion without piping through `tail`. `--json` prints the
+comments of the selected threads (see below).
 
 ```console
 $ bh pr comment list 123 --needs-reply
@@ -413,8 +420,8 @@ request fields such as `merge_commit` and `closed_by` stay present and are
 
 `bh pr comment list --json` prints the comments of the listed threads in the
 API's order (deleted comments are left out, and the thread filters,
-`--top-level` and `--limit` apply as in the text view). Each comment keeps the raw API fields (`parent`,
-`inline` and `resolution` are omitted when unset) and adds three derived
+`--top-level` and `--limit` apply as in the text view). Each comment keeps the
+raw API fields (`parent`, `inline` and `resolution` are omitted when unset) and adds three derived
 fields:
 
 | Field | Meaning |
@@ -537,6 +544,62 @@ bh pr comment resolve 123 456 457 458
 bh pr comment add 123 --path main.go --line 42 --body "Rename this"
 ```
 
+## Using bh from AI agents
+
+bh follows `gh`'s command layout, so most `gh pr` habits carry over. The
+cheat sheet below lists the commands an agent typically needs; run
+`bh help reference` for every command and flag.
+
+```sh
+bh pr list --author @me --json id,title,source.branch.name   # find PRs (--state all, --base, --head, --search)
+bh pr view [<pr>]                                            # header, approvals, checks, description
+bh pr view 123 --comments                                    # ...plus the comment threads (--unresolved)
+bh pr diff 123 --name-only                                   # changed files (--stat for counts, no flag for the diff)
+bh pr commits 123
+bh pr checks 123 --watch                                     # wait for builds; exit 1 if any failed
+bh pr comment list 123 --needs-reply                         # threads waiting for you; ids in "#id author · time" headers
+bh pr comment reply 123 881626438 --resolve --body-file - <<'EOF'
+Fixed in 63a5b8b.
+EOF
+bh pr comment add 123 --path main.go --line 42 --body "Rename this"   # prints the URL, ending in #comment-<id>
+bh pr comment resolve 123 881626438 881626440                # several threads at once
+bh pr create --push --title "Add login form" --body-file - <<'EOF'
+Body in markdown.
+EOF
+bh pr edit 123 --base dev --add-reviewer alice               # --body-file - works here too
+bh pr review 123 --approve                                   # or: bh pr approve 123
+bh pr view 123 --json --jq .source.branch.name               # built-in jq; jq need not be installed
+```
+
+- **Differences from `gh`.** `bh pr comment` is a command group, not "add a
+  comment": use `bh pr comment add`. There is no `bh pr comments`; comments are
+  listed by `bh pr comment list` (threads with the ids that `reply`, `resolve`,
+  `reopen` and `delete` take) or shown under the description by
+  `bh pr view --comments`. `bh pr ready` is `bh pr edit --ready`, and there is
+  no `bh pr status` (use `bh pr list --author @me`).
+- **JSON.** `--json` alone prints every field; `--json id,title` (or
+  `--json=id,title`) selects fields, using Bitbucket's field names (`id`,
+  `state`, `source.branch.name`, `author.nickname`), not `gh`'s. `--jq`/`-q`
+  filters the result. Available on `pr list`, `pr view`, `pr commits`,
+  `pr checks` and `pr comment list`; comments add `resolved`, `thread_id` and
+  `is_reply`.
+- **Bodies.** `--body-file -` (`-F -`) reads the body from standard input, so a
+  quoted heredoc passes markdown, backticks and `$` untouched. It works on
+  `pr create`, `pr edit`, `pr review`, `pr comment add` and
+  `pr comment reply`.
+- **Output.** `pr create`, `pr edit`, `pr comment add` and `pr comment reply`
+  print only the URL on standard output; summaries such as
+  `✓ Resolved comment #id` go to standard error. When standard error is not a
+  terminal every error is a single line, so `2>&1 | tail -1` keeps all of it.
+- **Base and reviewers.** `pr create` targets `git config bh.base` (then
+  `BH_BASE`, then the main branch) unless `--base` is given, and adds the
+  repository's default reviewers unless `--no-default-reviewers` is passed.
+- **Scopes.** The token needs `read:user:bitbucket`,
+  `read:repository:bitbucket`, `read:pullrequest:bitbucket` and
+  `write:pullrequest:bitbucket`; add `read:workspace:bitbucket` to pass
+  reviewers by name. A missing scope fails with HTTP 403 naming the required
+  scopes.
+
 ## Configuration
 
 Configuration (including the stored API token) lives in `hosts.yml` inside the
@@ -584,6 +647,9 @@ and `TERM` is not `dumb`.
 The following are intentionally out of scope for now:
 
 - Bitbucket Data Center (server) support
+- Commands beyond pull requests and authentication (issues, pipelines,
+  repositories, raw API calls)
 - Storing credentials in an OS keyring
-- `pr status`
+- `pr status` (use `bh pr list --author @me`, or `bh pr view` for the current
+  branch)
 - A bundled CI workflow

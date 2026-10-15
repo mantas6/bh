@@ -70,6 +70,20 @@ The filters select whole threads, which are always shown complete:
   --author       threads started by a user (nickname, display name,
                  {uuid}, account id, or @me)
 --top-level then leaves out the replies, and --limit keeps the newest threads.`,
+		Example: cmdutil.Examples(`
+			# All threads of the pull request for the current branch
+			$ bh pr comment list
+
+			# Threads of pull request 123 waiting for your answer
+			$ bh pr comment list 123 --needs-reply
+
+			# Unresolved threads, or what changed in the last 2 hours
+			$ bh pr comment list 123 --unresolved
+			$ bh pr comment list 123 --since 2h
+
+			# Ids of the threads to resolve, as JSON
+			$ bh pr comment list 123 --unresolved --json id,thread_id,inline.path
+		`),
 		Args: cmdutil.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {

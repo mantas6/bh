@@ -328,6 +328,22 @@ func TestIsUserCancellation(t *testing.T) {
 	}
 }
 
+func TestExamples(t *testing.T) {
+	t.Parallel()
+	got := Examples(`
+		# comment
+		$ bh pr list
+
+		$ bh pr create --body-file - <<'EOF'
+		  body
+		EOF
+	`)
+	want := "  # comment\n  $ bh pr list\n\n  $ bh pr create --body-file - <<'EOF'\n    body\n  EOF"
+	if got != want {
+		t.Errorf("Examples = %q, want %q", got, want)
+	}
+}
+
 func TestHeredocCases(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

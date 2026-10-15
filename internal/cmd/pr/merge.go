@@ -49,7 +49,7 @@ func NewCmdMerge(f *cmdutil.Factory, runF func(*MergeOptions) error) *cobra.Comm
 
 			With no argument the pull request for the current branch is merged.
 		`),
-		Example: cmdutil.Heredoc(`
+		Example: cmdutil.Examples(`
 			# Merge the PR for the current branch, prompting for confirmation
 			$ bh pr merge
 

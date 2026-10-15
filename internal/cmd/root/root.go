@@ -14,12 +14,26 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "bh <command> <subcommand> [flags]",
 		Short: "Bitbucket CLI",
-		Long:  "Work with Bitbucket Cloud pull requests from the command line.",
-		Example: cmdutil.Heredoc(`
-			$ bh pr list
-			$ bh pr view 123
-			$ bh pr create --fill
-			$ bh auth login
+		Long: cmdutil.Heredoc(`
+			Work with Bitbucket Cloud pull requests from the command line.
+
+			Run ` + "`bh help reference`" + ` for every command and its flags at once.
+		`),
+		Example: cmdutil.Examples(`
+			$ bh pr list --author @me
+			$ bh pr view 123 --comments
+
+			# Answer review comments: ids come from the "#id author · time" headers
+			$ bh pr comment list 123 --needs-reply
+			$ bh pr comment reply 123 881626438 --body "Fixed in 63a5b8b" --resolve
+
+			# Retarget a pull request; set a description from standard input
+			$ bh pr edit 123 --base dev
+			$ bh pr create --push --title "Add login form" --body-file - <<'EOF'
+			Adds the login form.
+			EOF
+
+			$ bh help reference
 		`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -41,6 +55,7 @@ func NewCmdRoot(f *cmdutil.Factory) *cobra.Command {
 	cmd.AddCommand(auth.NewCmdAuth(f))
 	cmd.AddCommand(pr.NewCmdPR(f))
 	cmd.AddCommand(version.NewCmdVersion(f))
+	cmd.AddCommand(newCmdReference())
 
 	cmdutil.SetupGroup(cmd, nil)
 

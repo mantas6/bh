@@ -8,8 +8,8 @@ import (
 
 // Heredoc trims a leading newline and removes the common leading whitespace
 // (the indentation of the least-indented non-blank line) from a raw string
-// literal. It is used to write readable Example blocks in source while
-// producing left-aligned help output.
+// literal. It is used to write readable Long texts in source while producing
+// left-aligned help output.
 func Heredoc(s string) string {
 	s = strings.TrimPrefix(s, "\n")
 	lines := strings.Split(s, "\n")
@@ -35,6 +35,19 @@ func Heredoc(s string) string {
 		}
 	}
 	return strings.TrimRight(strings.Join(lines, "\n"), "\n")
+}
+
+// Examples formats a command's Example block: the text is dedented like
+// Heredoc, then every non-blank line is indented by two spaces so the
+// examples line up with the usage line and flags in cobra's help output.
+func Examples(s string) string {
+	lines := strings.Split(Heredoc(s), "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = "  " + line
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // The validators below return FlagErrors so the top level prints the error

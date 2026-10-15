@@ -62,6 +62,24 @@ text and matched against the title, description and source branch, so
 
 When more pull requests match than --limit allows, a notice saying so is
 printed on stderr (not with --json).`,
+		Example: cmdutil.Examples(`
+			# Open pull requests
+			$ bh pr list
+
+			# Your pull requests in any state
+			$ bh pr list --state all --author @me
+
+			# Pull requests into dev, or from a given branch
+			$ bh pr list --base dev
+			$ bh pr list --state all --head ft/login
+
+			# Plain-text search (title, description, branch), or a BBQL query
+			$ bh pr list --search 4304
+			$ bh pr list --search 'title ~ "SUPER-123" AND author.nickname = "ada"'
+
+			# Numbers and titles as tab-separated text
+			$ bh pr list --json id,title --jq '.[] | "\(.id)\t\(.title)"'
+		`),
 		Aliases: []string{"ls"},
 		Args:    cmdutil.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

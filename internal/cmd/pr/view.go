@@ -55,6 +55,18 @@ as "Checks: 2 passed, 1 failed"; see ` + "`bh pr checks`" + ` for the details.
 
 Without --comments, a pull request that has comments gets a hint line
 pointing at ` + "`bh pr comment list`" + `, just above the final URL line.`,
+		Example: cmdutil.Examples(`
+			# The pull request for the current branch
+			$ bh pr view
+
+			# Pull request 123 with its comment threads, or only the unresolved ones
+			$ bh pr view 123 --comments
+			$ bh pr view 123 --unresolved
+
+			# Selected fields as JSON, or a single value
+			$ bh pr view 123 --json=id,title,state,source.branch.name
+			$ bh pr view 123 --json --jq .destination.branch.name
+		`),
 		Args: cmdutil.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {

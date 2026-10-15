@@ -78,7 +78,7 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 			The pull request URL is the only line printed on standard output; a
 			summary line goes to standard error.
 		`),
-		Example: cmdutil.Heredoc(`
+		Example: cmdutil.Examples(`
 			# Interactively create a PR from the current branch
 			$ bh pr create
 
@@ -87,6 +87,12 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 
 			# Create a PR against a specific base with reviewers
 			$ bh pr create --base main --reviewer alice,bob --title "Fix bug"
+
+			# Non-interactively: push the branch, body from standard input
+			$ bh pr create --push --title "Add login form" --body-file - <<'EOF'
+			## Summary
+			Adds the login form.
+			EOF
 
 			# Always target "dev" in this repository unless --base is given
 			$ git config bh.base dev

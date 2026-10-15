@@ -50,14 +50,19 @@ With --stat, print one line per changed file: path, status (added, modified,
 removed, renamed, ...) and the added/removed line counts. A renamed file is
 shown as "old → new". On a terminal the columns are aligned and a summary
 line follows; otherwise fields are tab-separated.`,
-		Example: `  # Diff of the pull request for the current branch
-  bh pr diff
+		Example: cmdutil.Examples(`
+			# Diff of the pull request for the current branch
+			$ bh pr diff
 
-  # Changed files of pull request 123
-  bh pr diff 123 --name-only
+			# Changed files of pull request 123, one path per line
+			$ bh pr diff 123 --name-only
 
-  # Per-file line counts
-  bh pr diff 123 --stat`,
+			# Per-file status and line counts
+			$ bh pr diff 123 --stat
+
+			# Open the diff in the browser
+			$ bh pr diff 123 --web
+		`),
 		Args: cmdutil.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {

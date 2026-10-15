@@ -37,8 +37,10 @@ func newCmdResolveOrReopen(f *cmdutil.Factory, runF func(*ResolveOptions) error,
 	}
 
 	use, short, verb := "resolve", "Resolve pull request comment threads", "Resolve"
+	listFlags := " --unresolved"
 	if reopen {
 		use, short, verb = "reopen", "Reopen (unresolve) pull request comment threads", "Reopen"
+		listFlags = ""
 	}
 
 	return &cobra.Command{
@@ -47,6 +49,13 @@ func newCmdResolveOrReopen(f *cmdutil.Factory, runF func(*ResolveOptions) error,
 		Long: verb + ` the threads of one or more top-level comments, by the ids shown by
 ` + "`bh pr comment list`" + `. Each id is reported on stderr; when any of them fails
 the others are still attempted and the command exits non-zero.`,
+		Example: cmdutil.Examples(`
+			# Comment ids are the "#id" in the headers of bh pr comment list
+			$ bh pr comment list 123` + listFlags + `
+
+			$ bh pr comment ` + use + ` 123 881626438
+			$ bh pr comment ` + use + ` 123 881626438 881626440
+		`),
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) < 2 {
 				return cmdutil.FlagErrorf("a pull request and at least one comment id are required")

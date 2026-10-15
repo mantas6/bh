@@ -44,6 +44,19 @@ func NewCmdReply(f *cmdutil.Factory, runF func(*ReplyOptions) error) *cobra.Comm
 <comment-id> is the id shown by ` + "`bh pr comment list`" + ` (any comment of a
 thread). With --resolve the thread is resolved after the reply is posted; if
 posting the reply fails nothing is resolved.`,
+		Example: cmdutil.Examples(`
+			# Find the comment id: the "#881626438" in a "#id author · time" header
+			$ bh pr comment list 123 --unresolved
+
+			# Reply to it, then resolve its thread
+			$ bh pr comment reply 123 881626438 --body "Fixed in 63a5b8b" --resolve
+
+			# Or take the id from the end of the URL printed by comment add or reply
+			# (https://bitbucket.org/ws/repo/pull-requests/123/_/diff#comment-881626440)
+			$ bh pr comment reply 123 881626440 --body-file - <<'EOF'
+			Good catch, see the other call site too.
+			EOF
+		`),
 		Args: cmdutil.ExactArgs(2, "a pull request and a comment id are required"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Arg = args[0]

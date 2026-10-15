@@ -49,7 +49,7 @@ func NewCmdAdd(f *cmdutil.Factory, runF func(*AddOptions) error) *cobra.Command 
 			of standard input. Pass --path (and optionally --line) to attach the
 			comment inline to a file in the diff.
 		`),
-		Example: cmdutil.Heredoc(`
+		Example: cmdutil.Examples(`
 			# Comment on the PR for the current branch
 			$ bh pr comment add --body "Looks good to me"
 
@@ -61,6 +61,11 @@ func NewCmdAdd(f *cmdutil.Factory, runF func(*AddOptions) error) *cobra.Command 
 
 			# Pipe the body from another command
 			$ echo "Nice work" | bh pr comment add 123
+
+			# The printed URL ends in #comment-<id>; reply to or resolve with that id
+			$ bh pr comment add 123 --body "Why?"
+			https://bitbucket.org/ws/repo/pull-requests/123/_/diff#comment-881626438
+			$ bh pr comment resolve 123 881626438
 		`),
 		Args: cmdutil.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

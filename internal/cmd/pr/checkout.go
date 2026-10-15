@@ -45,7 +45,7 @@ func NewCmdCheckout(f *cmdutil.Factory, runF func(*CheckoutOptions) error) *cobr
 			branch is fetched from the fork's clone URL (matching the origin remote's
 			protocol) since Bitbucket exposes no pull/* refs.
 		`),
-		Example: cmdutil.Heredoc(`
+		Example: cmdutil.Examples(`
 			# Check out PR 123
 			$ bh pr checkout 123
 

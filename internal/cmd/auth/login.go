@@ -62,7 +62,7 @@ func NewCmdLogin(f *cmdutil.Factory, runF func(*LoginOptions) error) *cobra.Comm
 			Leave the email blank to send the token as a Bearer token, or provide
 			your Atlassian account email to use Basic authentication.
 		`),
-		Example: cmdutil.Heredoc(`
+		Example: cmdutil.Examples(`
 			# Authenticate interactively (prompts for the token)
 			$ bh auth login
 

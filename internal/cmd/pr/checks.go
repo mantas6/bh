@@ -65,11 +65,16 @@ With --watch, poll every 10 seconds until no check is in progress, then
 print the final result (on a terminal the screen is redrawn on every poll).
 
 Exits with status 1 when any check failed, also with --json.`,
-		Example: `  # Checks of the pull request for the current branch
-  bh pr checks
+		Example: cmdutil.Examples(`
+			# Checks of the pull request for the current branch
+			$ bh pr checks
 
-  # Wait for the builds of pull request 123 to finish
-  bh pr checks 123 --watch`,
+			# Wait for the builds of pull request 123 to finish (exit 1 if any failed)
+			$ bh pr checks 123 --watch
+
+			# URLs of the failed checks
+			$ bh pr checks 123 --json -q '.[] | select(.state == "FAILED") | .url'
+		`),
 		Args: cmdutil.MaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
