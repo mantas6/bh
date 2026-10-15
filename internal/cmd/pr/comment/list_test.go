@@ -328,3 +328,34 @@ func TestListByURLWithoutGitOrBaseRepo(t *testing.T) {
 		t.Errorf("expected comment, got %q", out.String())
 	}
 }
+
+// TestListExactOutput locks the text format agents parse:
+// `#id author · time · path:line [resolved]`, indented bodies, nested replies.
+func TestListExactOutput(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	root := cmdtest.CommentAt(1, "ada", "Rename this", 120)
+	root.Inline = &api.Inline{Path: "main.go", To: new(42)}
+	root.Resolution = &api.Resolution{Type: "resolved"}
+	reply := cmdtest.CommentAt(2, "bob", "Done", 30)
+	reply.Parent = &api.CommentRef{ID: 1}
+	open := cmdtest.CommentAt(3, "cara", "Why?", 5)
+	listComments(srv, []api.Comment{root, reply, open})
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	if err := listRun(t.Context(), newListOpts(t, srv, ios)); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	want := "#1 ada · about 2 hours ago · main.go:42 [resolved]\n" +
+		"  Rename this\n" +
+		"\n" +
+		"  #2 bob · 30 minutes ago\n" +
+		"    Done\n" +
+		"\n" +
+		"#3 cara · 5 minutes ago\n" +
+		"  Why?\n" +
+		"\n"
+	if got := out.String(); got != want {
+		t.Errorf("output mismatch\n got:\n%s\nwant:\n%s", got, want)
+	}
+}

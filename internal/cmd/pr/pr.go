@@ -39,7 +39,7 @@ func NewCmdPR(f *cmdutil.Factory) *cobra.Command {
 // command to use instead when they type a `bh pr` subcommand that does not
 // exist. An entry is only consulted while no real subcommand has that name.
 var unknownCommandHints = map[string]string{
-	"comments": "To list comments, run: bh pr comment list [<pr>]",
+	"comments": "To list comments, run: bh pr comment list [<pr>], or bh pr view [<pr>] --comments",
 	"diff":     "bh pr diff is not supported yet; run `bh pr checkout <pr>` and use git diff, or open the pull request with `bh pr view <pr> --web`",
 	"commits":  "bh pr commits is not supported yet; run `bh pr checkout <pr>` and use git log, or open the pull request with `bh pr view <pr> --web`",
 	"files":    "bh pr files is not supported yet; run `bh pr checkout <pr>` and use git diff --name-only, or open the pull request with `bh pr view <pr> --web`",

@@ -146,7 +146,7 @@ matches, and for commands that do not exist (such as `bh pr comments` or
 $ bh pr comments 123
 bh: unknown command "comments" for "bh pr"
 Did you mean "comment"?
-To list comments, run: bh pr comment list [<pr>]
+To list comments, run: bh pr comment list [<pr>], or bh pr view [<pr>] --comments
 
 Run 'bh pr --help' for usage.
 ```
@@ -158,7 +158,7 @@ still shows the whole message:
 
 ```console
 $ bh pr comments 123 2>&1 | cat
-bh: unknown command "comments" for "bh pr"; Did you mean "comment"?; To list comments, run: bh pr comment list [<pr>] (run 'bh pr --help' for usage)
+bh: unknown command "comments" for "bh pr"; Did you mean "comment"?; To list comments, run: bh pr comment list [<pr>], or bh pr view [<pr>] --comments (run 'bh pr --help' for usage)
 ```
 
 `bh pr view` prints a summary header followed by the description. On
@@ -179,6 +179,39 @@ Changes requested by: cara
 
 This does things.
 
+3 comments · bh pr comment list 123
+View this pull request on Bitbucket: https://bitbucket.org/myws/myrepo/pull-requests/123
+```
+
+When the pull request has comments, a `N comments · bh pr comment list <pr>`
+hint is printed after the description, just above the URL line (which stays
+last). Pass `--comments` (`-c`) to print the comment threads instead, in the
+same format as `bh pr comment list`: a `#id author · time · path:line
+[resolved]` header per comment, indented bodies, and replies nested under
+their parent. `--unresolved` shows only unresolved threads and implies
+`--comments`. `--comments` cannot be combined with `--json` or `--web`; use
+`bh pr comment list --json` for comments as JSON.
+
+```console
+$ bh pr view 123 --comments
+Add feature #123
+OPEN • ada wants to merge feature into main • 2 approvals • 3 comments
+Reviewers: bob (approved ✓), cara (changes requested)
+Approved by: bob, dan
+Changes requested by: cara
+
+This does things.
+
+Comments:
+#1 ada · about 2 hours ago · main.go:42 [resolved]
+  Rename this
+
+  #2 bob · 30 minutes ago
+    Done
+
+#3 cara · 5 minutes ago
+  Why?
+
 View this pull request on Bitbucket: https://bitbucket.org/myws/myrepo/pull-requests/123
 ```
 
@@ -193,6 +226,9 @@ bh pr list --state all --author @me
 
 # View the pull request for the current branch
 bh pr view
+
+# View a pull request with its unresolved comment threads
+bh pr view 123 --unresolved
 
 # Create a pull request, filling title and body from commits
 bh pr create --fill --base main --reviewer alice,bob

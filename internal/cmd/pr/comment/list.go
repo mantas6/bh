@@ -3,15 +3,12 @@ package comment
 import (
 	"context"
 	"fmt"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmd/pr/shared"
 	"github.com/mantas6/bh/internal/cmdutil"
 	"github.com/mantas6/bh/internal/git"
-	"github.com/mantas6/bh/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -78,146 +75,23 @@ func listRun(ctx context.Context, opts *ListOptions) error {
 		return err
 	}
 
-	threads := buildThreads(comments, opts.Unresolved)
-	if opts.Limit > 0 && len(threads.roots) > opts.Limit {
-		threads.roots = threads.roots[:opts.Limit]
+	threads := shared.BuildThreads(comments, opts.Unresolved)
+	if opts.Limit > 0 && len(threads.Roots) > opts.Limit {
+		threads.Roots = threads.Roots[:opts.Limit]
 	}
 
 	if opts.JSON {
-		return cmdutil.PrintJSON(opts.IO.Out, threads.flatten(comments))
+		return cmdutil.PrintJSON(opts.IO.Out, threads.Flatten(comments))
+	}
+
+	if len(threads.Roots) == 0 {
+		fmt.Fprintf(opts.IO.Out, "No comments on pull request #%d\n", pr.ID)
+		return nil
 	}
 
 	now := time.Now
 	if opts.Now != nil {
 		now = opts.Now
 	}
-	return printThreads(opts.IO, now(), pr.ID, threads)
-}
-
-// threadSet is the comments of a pull request arranged into threads.
-type threadSet struct {
-	// roots are the top-level comments, oldest first.
-	roots []*api.Comment
-	// children maps a comment id to its visible replies, oldest first.
-	children map[int][]*api.Comment
-}
-
-// buildThreads arranges the non-deleted comments into threads. A reply whose
-// parent is deleted or missing becomes a root. With unresolved, threads whose
-// root is resolved are dropped.
-func buildThreads(comments []api.Comment, unresolved bool) *threadSet {
-	byID := make(map[int]*api.Comment, len(comments))
-	for i := range comments {
-		if !comments[i].Deleted {
-			byID[comments[i].ID] = &comments[i]
-		}
-	}
-
-	ts := &threadSet{children: map[int][]*api.Comment{}}
-	for i := range comments {
-		c := &comments[i]
-		if c.Deleted {
-			continue
-		}
-		if c.Parent != nil {
-			if _, ok := byID[c.Parent.ID]; ok {
-				ts.children[c.Parent.ID] = append(ts.children[c.Parent.ID], c)
-				continue
-			}
-		}
-		if unresolved && c.Resolution != nil {
-			continue
-		}
-		ts.roots = append(ts.roots, c)
-	}
-
-	sortByCreated(ts.roots)
-	for _, ch := range ts.children {
-		sortByCreated(ch)
-	}
-	return ts
-}
-
-// walk calls fn for every comment in the threads, depth first, with its
-// nesting level.
-func (ts *threadSet) walk(fn func(c *api.Comment, level int)) {
-	var visit func(c *api.Comment, level int)
-	visit = func(c *api.Comment, level int) {
-		fn(c, level)
-		for _, child := range ts.children[c.ID] {
-			visit(child, level+1)
-		}
-	}
-	for _, root := range ts.roots {
-		visit(root, 0)
-	}
-}
-
-// flatten returns the comments belonging to the threads, in the API's order.
-func (ts *threadSet) flatten(comments []api.Comment) []api.Comment {
-	include := map[int]bool{}
-	ts.walk(func(c *api.Comment, _ int) { include[c.ID] = true })
-
-	out := make([]api.Comment, 0, len(include))
-	for _, c := range comments {
-		if !c.Deleted && include[c.ID] {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
-func printThreads(ios *cmdutil.IOStreams, now time.Time, prID int, ts *threadSet) error {
-	if len(ts.roots) == 0 {
-		fmt.Fprintf(ios.Out, "No comments on pull request #%d\n", prID)
-		return nil
-	}
-
-	cs := ios.ColorScheme()
-	var b strings.Builder
-	ts.walk(func(c *api.Comment, level int) {
-		printComment(&b, cs, now, c, level)
-	})
-	fmt.Fprint(ios.Out, b.String())
-	return nil
-}
-
-func printComment(b *strings.Builder, cs *output.ColorScheme, now time.Time, c *api.Comment, level int) {
-	indent := strings.Repeat(" ", level*2)
-
-	fmt.Fprintf(b, "%s#%d %s · %s", indent, c.ID, shared.UserName(&c.User), output.RelativeTime(c.CreatedOn, now))
-	if s := inlineString(c.Inline); s != "" {
-		fmt.Fprintf(b, " · %s", s)
-	}
-	if c.Resolution != nil {
-		fmt.Fprintf(b, " %s", cs.Gray("[resolved]"))
-	}
-	b.WriteByte('\n')
-
-	body := strings.Repeat(" ", level*2+2)
-	for _, line := range strings.Split(c.Content.Raw, "\n") {
-		fmt.Fprintf(b, "%s%s\n", body, line)
-	}
-	b.WriteByte('\n')
-}
-
-// inlineString renders an inline anchor as "path:line". When only the old-file
-// line is present it is prefixed with "old ".
-func inlineString(in *api.Inline) string {
-	if in == nil || in.Path == "" {
-		return ""
-	}
-	if in.To != nil {
-		return fmt.Sprintf("%s:%d", in.Path, *in.To)
-	}
-	if in.From != nil {
-		return fmt.Sprintf("old %s:%d", in.Path, *in.From)
-	}
-	return in.Path
-}
-
-func sortByCreated(cs []*api.Comment) {
-	sort.SliceStable(cs, func(i, j int) bool {
-		return cs[i].CreatedOn.Before(cs[j].CreatedOn)
-	})
+	return shared.WriteThreads(opts.IO.Out, opts.IO.ColorScheme(), now(), threads)
 }

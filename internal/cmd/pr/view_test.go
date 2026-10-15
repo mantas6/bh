@@ -253,3 +253,198 @@ func TestViewStateWording(t *testing.T) {
 		})
 	}
 }
+
+// viewWithComments runs `pr view` in text mode against pr and comments with
+// the given options applied, and returns stdout.
+func viewWithComments(t *testing.T, pr *api.PullRequest, comments []api.Comment, setup func(*ViewOptions)) (string, *apitest.Server) {
+	t.Helper()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, pr)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123/comments", 200, cmdtest.ValuesPage(comments))
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newViewOptions(t, srv)
+	opts.IO = ios
+	opts.Now = cmdtest.FixedNow
+	if setup != nil {
+		setup(opts)
+	}
+	if err := viewRun(t.Context(), opts); err != nil {
+		t.Fatalf("viewRun: %v", err)
+	}
+	return out.String(), srv
+}
+
+func viewComments() []api.Comment {
+	root := cmdtest.CommentAt(1, "ada", "Rename this", 120)
+	root.Inline = &api.Inline{Path: "main.go", To: new(42)}
+	root.Resolution = &api.Resolution{Type: "resolved"}
+	reply := cmdtest.CommentAt(2, "bob", "Done", 30)
+	reply.Parent = &api.CommentRef{ID: 1}
+	open := cmdtest.CommentAt(3, "cara", "Why?", 5)
+	return []api.Comment{root, reply, open}
+}
+
+func TestViewComments(t *testing.T) {
+	t.Parallel()
+	got, _ := viewWithComments(t, cmdtest.SamplePR(), viewComments(), func(o *ViewOptions) {
+		o.Comments = true
+	})
+
+	want := "This does things.\n" +
+		"\n" +
+		"Comments:\n" +
+		"#1 ada · about 2 hours ago · main.go:42 [resolved]\n" +
+		"  Rename this\n" +
+		"\n" +
+		"  #2 bob · 30 minutes ago\n" +
+		"    Done\n" +
+		"\n" +
+		"#3 cara · 5 minutes ago\n" +
+		"  Why?\n" +
+		"\n" +
+		"View this pull request on Bitbucket: https://bitbucket.org/myws/myrepo/pull-requests/123\n"
+	if !strings.HasSuffix(got, want) {
+		t.Errorf("output does not end with the comment threads:\n got:\n%s\nwant suffix:\n%s", got, want)
+	}
+	if strings.Contains(got, "bh pr comment list") {
+		t.Errorf("hint should be omitted with --comments:\n%s", got)
+	}
+}
+
+func TestViewCommentsUnresolved(t *testing.T) {
+	t.Parallel()
+	got, _ := viewWithComments(t, cmdtest.SamplePR(), viewComments(), func(o *ViewOptions) {
+		o.Comments = true
+		o.Unresolved = true
+	})
+	if !strings.Contains(got, "Unresolved comments:\n#3 cara · 5 minutes ago\n  Why?\n\n") {
+		t.Errorf("missing unresolved thread:\n%s", got)
+	}
+	for _, c := range []string{"#1 ada", "#2 bob", "[resolved]"} {
+		if strings.Contains(got, c) {
+			t.Errorf("resolved thread should be hidden (found %q):\n%s", c, got)
+		}
+	}
+}
+
+func TestViewCommentsNone(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		unresolved bool
+		comments   []api.Comment
+		want       string
+	}{
+		{"no comments", false, []api.Comment{}, "No comments\n\nView this pull request"},
+		{"all resolved", true, viewComments()[:2], "No unresolved comments\n\nView this pull request"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, _ := viewWithComments(t, cmdtest.SamplePR(), tt.comments, func(o *ViewOptions) {
+				o.Comments = true
+				o.Unresolved = tt.unresolved
+			})
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("output missing %q:\n%s", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestViewCommentHint(t *testing.T) {
+	t.Parallel()
+	got, srv := viewWithComments(t, cmdtest.SamplePR(), nil, nil)
+
+	want := "This does things.\n" +
+		"\n" +
+		"2 comments · bh pr comment list 123\n" +
+		"View this pull request on Bitbucket: https://bitbucket.org/myws/myrepo/pull-requests/123\n"
+	if !strings.HasSuffix(got, want) {
+		t.Errorf("output does not end with the hint:\n got:\n%s\nwant suffix:\n%s", got, want)
+	}
+	if req := cmdtest.FindRequest(srv, "GET", "/comments"); req != nil {
+		t.Errorf("comments should not be fetched without --comments")
+	}
+}
+
+func TestViewCommentHintSingularAndAbsent(t *testing.T) {
+	t.Parallel()
+	pr := cmdtest.SamplePR()
+	pr.CommentCount = 1
+	if got := renderView(t, pr); !strings.Contains(got, "\n\n1 comment · bh pr comment list 123\n") {
+		t.Errorf("missing singular hint:\n%s", got)
+	}
+
+	pr = cmdtest.SamplePR()
+	pr.CommentCount = 0
+	if got := renderView(t, pr); strings.Contains(got, "bh pr comment list") {
+		t.Errorf("hint should be omitted without comments:\n%s", got)
+	}
+}
+
+func TestViewCommentHintURLArg(t *testing.T) {
+	t.Parallel()
+	pr := cmdtest.SamplePR()
+	pr.Links.HTML.Href = "https://bitbucket.org/other/repo/pull-requests/123"
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/other/repo/pullrequests/123", 200, pr)
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newViewOptions(t, srv)
+	opts.IO = ios
+	opts.Arg = "https://bitbucket.org/other/repo/pull-requests/123"
+	opts.Git = nil // no local checkout of other/repo
+	if err := viewRun(t.Context(), opts); err != nil {
+		t.Fatalf("viewRun: %v", err)
+	}
+	want := "2 comments · bh pr comment list https://bitbucket.org/other/repo/pull-requests/123\n"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("output missing %q:\n%s", want, out.String())
+	}
+}
+
+func TestViewCommentsFlags(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		args           []string
+		wantComments   bool
+		wantUnresolved bool
+		wantErr        string
+	}{
+		{"long", []string{"1", "--comments"}, true, false, ""},
+		{"short", []string{"1", "-c"}, true, false, ""},
+		{"unresolved implies comments", []string{"1", "--unresolved"}, true, true, ""},
+		{"both", []string{"1", "--comments", "--unresolved"}, true, true, ""},
+		{"json", []string{"1", "--comments", "--json"}, false, false, "--comments cannot be combined with --json"},
+		{"json unresolved", []string{"1", "--unresolved", "--json"}, false, false, "--comments cannot be combined with --json"},
+		{"web", []string{"1", "-c", "--web"}, false, false, "--comments cannot be combined with --web"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var captured *ViewOptions
+			cmd := NewCmdView(cmdtest.NewFactory(), func(o *ViewOptions) error {
+				captured = o
+				return nil
+			})
+			_, _, err := cmdtest.RunCommand(t, cmd, tt.args...)
+			if tt.wantErr != "" {
+				cmdtest.AssertFlagError(t, err, tt.wantErr)
+				if captured != nil {
+					t.Error("runF should not be called")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("execute: %v", err)
+			}
+			if captured.Comments != tt.wantComments || captured.Unresolved != tt.wantUnresolved {
+				t.Errorf("Comments=%v Unresolved=%v, want %v %v",
+					captured.Comments, captured.Unresolved, tt.wantComments, tt.wantUnresolved)
+			}
+		})
+	}
+}
