@@ -55,6 +55,11 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 			pushed yet you are prompted to push it (use --push to skip the prompt,
 			required when not running interactively). The base branch defaults to
 			the repository's main branch.
+
+			Reviewers are given by nickname, display name, {uuid} or account ID.
+			Names are resolved by listing the workspace members, which needs the
+			read:workspace:bitbucket token scope; a {uuid} or account ID is used
+			as is, without that lookup.
 		`),
 		Example: cmdutil.Heredoc(`
 			# Interactively create a PR from the current branch
@@ -87,7 +92,7 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 	cmd.Flags().StringVarP(&opts.Base, "base", "B", "", "The branch to merge into")
 	cmd.Flags().StringVarP(&opts.Head, "head", "H", "", "The branch that contains commits (defaults to current branch)")
 	cmd.Flags().BoolVar(&opts.Draft, "draft", false, "Mark the pull request as a draft")
-	cmd.Flags().StringSliceVarP(&opts.Reviewers, "reviewer", "r", nil, "Request reviews from people (comma-separated)")
+	cmd.Flags().StringSliceVarP(&opts.Reviewers, "reviewer", "r", nil, "Request reviews from people by name, {uuid} or account ID (comma-separated)")
 	cmd.Flags().BoolVar(&opts.CloseSourceBranch, "close-source-branch", false, "Close the source branch when the PR merges")
 	cmd.Flags().BoolVarP(&opts.Fill, "fill", "f", false, "Use commit info for the title and body")
 	cmd.Flags().BoolVar(&opts.Push, "push", false, "Push the branch to its upstream remote (default origin) before creating")
@@ -195,7 +200,7 @@ func createRun(ctx context.Context, opts *CreateOptions) error {
 		}
 	}
 
-	reviewerUUIDs, err := resolveReviewers(ctx, client, repo.Workspace, opts.Reviewers)
+	reviewerIDs, err := resolveReviewers(ctx, client, repo.Workspace, opts.Reviewers)
 	if err != nil {
 		return err
 	}
@@ -205,7 +210,7 @@ func createRun(ctx context.Context, opts *CreateOptions) error {
 		Description:       body,
 		SourceBranch:      head,
 		DestinationBranch: opts.Base,
-		Reviewers:         reviewerUUIDs,
+		Reviewers:         reviewerIDs,
 		Draft:             opts.Draft,
 		CloseSourceBranch: opts.CloseSourceBranch,
 	})

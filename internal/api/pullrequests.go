@@ -85,7 +85,7 @@ type CreatePRInput struct {
 	SourceBranch      string
 	SourceRepo        string   // full_name of the source repo (for forks); optional
 	DestinationBranch string   // optional; omitted uses repo default
-	Reviewers         []string // reviewer UUIDs
+	Reviewers         []string // reviewer UUIDs ("{...}") or account IDs
 	Draft             bool
 	CloseSourceBranch bool
 }
@@ -116,7 +116,7 @@ func (c *Client) CreatePullRequest(ctx context.Context, repo string, in CreatePR
 	}
 
 	if in.Reviewers != nil {
-		body["reviewers"] = uuidRefs(in.Reviewers)
+		body["reviewers"] = userRefs(in.Reviewers)
 	}
 
 	var pr PullRequest
@@ -132,20 +132,28 @@ type UpdatePRInput struct {
 	Title             *string
 	Description       *string
 	DestinationBranch *string
-	// Reviewers replaces the reviewer list with these UUIDs when non-nil
-	// (an empty, non-nil slice removes every reviewer).
+	// Reviewers replaces the reviewer list with these UUIDs or account IDs
+	// when non-nil (an empty, non-nil slice removes every reviewer).
 	Reviewers []string
 	Draft     *bool
 }
 
-type uuidRef struct {
-	UUID string `json:"uuid"`
+// userRef identifies a user in a request body by uuid or account_id.
+type userRef struct {
+	UUID      string `json:"uuid,omitempty"`
+	AccountID string `json:"account_id,omitempty"`
 }
 
-func uuidRefs(uuids []string) []uuidRef {
-	refs := make([]uuidRef, 0, len(uuids))
-	for _, u := range uuids {
-		refs = append(refs, uuidRef{UUID: u})
+// userRefs builds request references from ids: a braced value ("{...}") is
+// sent as a uuid, anything else as an account_id.
+func userRefs(ids []string) []userRef {
+	refs := make([]userRef, 0, len(ids))
+	for _, id := range ids {
+		if strings.HasPrefix(id, "{") {
+			refs = append(refs, userRef{UUID: id})
+		} else {
+			refs = append(refs, userRef{AccountID: id})
+		}
 	}
 	return refs
 }
@@ -161,7 +169,7 @@ type updatePRBody struct {
 	Title       *string    `json:"title,omitempty"`
 	Description *string    `json:"description,omitempty"`
 	Destination *branchRef `json:"destination,omitempty"`
-	Reviewers   *[]uuidRef `json:"reviewers,omitempty"`
+	Reviewers   *[]userRef `json:"reviewers,omitempty"`
 	Draft       *bool      `json:"draft,omitempty"`
 }
 
@@ -177,7 +185,7 @@ func (c *Client) UpdatePullRequest(ctx context.Context, repo string, id int, in 
 		body.Destination.Branch.Name = *in.DestinationBranch
 	}
 	if in.Reviewers != nil {
-		refs := uuidRefs(in.Reviewers)
+		refs := userRefs(in.Reviewers)
 		body.Reviewers = &refs
 	}
 

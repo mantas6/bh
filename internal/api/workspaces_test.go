@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
 )
 
@@ -103,5 +104,35 @@ func TestFindMembersNoQueriesSkipsRequest(t *testing.T) {
 	}
 	if n := len(srv.Requests()); n != 0 {
 		t.Errorf("requests = %d, want 0", n)
+	}
+}
+
+func TestFindMembersListingErrorWrapped(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle(http.MethodGet, "/workspaces/ws/members", 403, scopeErrorBody)
+	_, err := srv.APIClient().FindMembers(t.Context(), "ws", []string{"alice"})
+	if !api.IsForbidden(err) {
+		t.Fatalf("err = %v, want a wrapped 403", err)
+	}
+	if !strings.HasPrefix(err.Error(), "listing workspace members: Your credentials lack") {
+		t.Errorf("err = %q", err)
+	}
+}
+
+func TestMatchMembers(t *testing.T) {
+	t.Parallel()
+	members := []api.WorkspaceMember{
+		{User: api.User{UUID: "{aaa}", AccountID: "acc1", Nickname: "alice", DisplayName: "Alice"}},
+	}
+	got, err := api.MatchMembers(members, []string{" alice ", "", "acc1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["alice"].UUID != "{aaa}" || got["acc1"].UUID != "{aaa}" {
+		t.Errorf("got %v", got)
+	}
+	if _, err := api.MatchMembers(members, []string{"bob"}); err == nil || !strings.Contains(err.Error(), `no workspace member matches "bob"`) {
+		t.Errorf("err = %v", err)
 	}
 }

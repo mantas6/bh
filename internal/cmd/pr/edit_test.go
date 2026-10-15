@@ -199,3 +199,103 @@ func TestEditFlagParsing(t *testing.T) {
 		t.Errorf("reviewers add=%v remove=%v", captured.AddReviewers, captured.RemoveReviewers)
 	}
 }
+
+// scopeErrorBody is Bitbucket's 403 body for a token without the scope the
+// member listing needs; its "detail" is an object.
+const scopeErrorBody = `{"type":"error","error":{"message":"Your credentials lack one or more required privilege scopes.",` +
+	`"detail":{"granted":["read:pullrequest:bitbucket"],"required":["read:workspace:bitbucket"]}}}`
+
+func TestEditAddReviewerForbiddenExplainsScope(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
+	srv.Handle("GET", "/workspaces/myws/members", 403, scopeErrorBody)
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := &EditOptions{
+		IO:           ios,
+		APIClient:    cmdtest.ClientFunc(srv),
+		Git:          cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:     cmdtest.BaseRepoFunc(nil),
+		Arg:          "123",
+		AddReviewers: []string{"Julius Smatavicius", "gytis.putvinskas"},
+	}
+	err := editRun(t.Context(), opts)
+	if !api.IsForbidden(err) {
+		t.Fatalf("err = %v, want 403", err)
+	}
+	want := `resolving reviewers "Julius Smatavicius", "gytis.putvinskas": listing workspace members: ` +
+		`Your credentials lack one or more required privilege scopes. (HTTP 403): ` +
+		`required scopes: read:workspace:bitbucket; granted: read:pullrequest:bitbucket`
+	if err.Error() != want {
+		t.Errorf("err = %q\nwant  %q", err, want)
+	}
+	hint := cmdutil.HintFor(err)
+	for _, w := range []string{"read:workspace:bitbucket", "bh auth login", "{uuid} or account ID"} {
+		if !strings.Contains(hint, w) {
+			t.Errorf("hint = %q, want to contain %q", hint, w)
+		}
+	}
+	for _, r := range srv.Requests() {
+		if r.Method == "PUT" {
+			t.Error("PR must not be updated when reviewer resolution fails")
+		}
+	}
+}
+
+func TestEditAddReviewerByIDSkipsLookup(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t) // no members route: a lookup would fail the test
+	pr := cmdtest.SamplePR()
+	pr.Reviewers[0].AccountID = "557058:bbbbbbbb-0000-0000-0000-000000000000"
+	srv.Handle("GET", "/repositories/myws/myrepo/pullrequests/123", 200, pr)
+	srv.Handle("PUT", "/repositories/myws/myrepo/pullrequests/123", 200, cmdtest.SamplePR())
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := &EditOptions{
+		IO:        ios,
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(gittest.New(t)),
+		BaseRepo:  cmdtest.BaseRepoFunc(nil),
+		Arg:       "123",
+		AddReviewers: []string{
+			"{Cara-UUID}",
+			"5b10ac8d82e05b22cc7d4ef5",
+			"DDDDDDDD-1111-2222-3333-444444444444",
+			"557058:bbbbbbbb-0000-0000-0000-000000000000", // bob, already a reviewer
+			"{bob-uuid}",                                  // bob again, by uuid
+		},
+	}
+	if err := editRun(t.Context(), opts); err != nil {
+		t.Fatalf("editRun: %v", err)
+	}
+	if got := string(srv.LastRequest(t, "PUT", "/repositories/myws/myrepo/pullrequests/123").Body); got != `{"reviewers":[`+
+		`{"uuid":"{bob-uuid}"},{"uuid":"{cara-uuid}"},{"account_id":"5b10ac8d82e05b22cc7d4ef5"},`+
+		`{"uuid":"{dddddddd-1111-2222-3333-444444444444}"}]}` {
+		t.Errorf("body = %s", got)
+	}
+}
+
+func TestDirectReviewerID(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in, want string
+		ok       bool
+	}{
+		{"{ABC}", "{abc}", true},
+		{"a1b2c3d4-e5f6-7890-abcd-ef1234567890", "{a1b2c3d4-e5f6-7890-abcd-ef1234567890}", true},
+		{"557058:a1b2c3d4-e5f6-7890-abcd-ef1234567890", "557058:a1b2c3d4-e5f6-7890-abcd-ef1234567890", true},
+		{"5b10ac8d82e05b22cc7d4ef5", "5b10ac8d82e05b22cc7d4ef5", true},
+		{"alice", "", false},
+		{"Julius Smatavicius", "", false},
+		{"bob-uuid", "", false},
+		{"{}", "", false},
+		{"5b10ac8d82e05b22cc7d4ef", "", false}, // 23 hex digits
+	}
+	for _, tt := range tests {
+		got, ok := directReviewerID(tt.in)
+		if got != tt.want || ok != tt.ok {
+			t.Errorf("directReviewerID(%q) = %q, %v; want %q, %v", tt.in, got, ok, tt.want, tt.ok)
+		}
+	}
+}

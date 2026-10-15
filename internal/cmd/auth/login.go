@@ -16,7 +16,7 @@ import (
 
 // tokenInstructions describes how to mint an API token with the required
 // scopes; printed to ErrOut during interactive login.
-const tokenInstructions = "Create an API token at https://id.atlassian.com/manage-profile/security/api-tokens with scopes: read:user:bitbucket, read:repository:bitbucket, read:pullrequest:bitbucket, write:pullrequest:bitbucket"
+const tokenInstructions = "Create an API token at https://id.atlassian.com/manage-profile/security/api-tokens with scopes: read:user:bitbucket, read:repository:bitbucket, read:pullrequest:bitbucket, write:pullrequest:bitbucket, read:workspace:bitbucket (for reviewers by name)"
 
 // LoginOptions holds the dependencies and flags for `bh auth login`.
 type LoginOptions struct {
@@ -55,7 +55,9 @@ func NewCmdLogin(f *cmdutil.Factory, runF func(*LoginOptions) error) *cobra.Comm
 			Create an API token at
 			https://id.atlassian.com/manage-profile/security/api-tokens with the
 			scopes: read:user:bitbucket, read:repository:bitbucket,
-			read:pullrequest:bitbucket and write:pullrequest:bitbucket.
+			read:pullrequest:bitbucket and write:pullrequest:bitbucket. Add
+			read:workspace:bitbucket to request reviewers by name with
+			pr create --reviewer or pr edit --add-reviewer.
 
 			Leave the email blank to send the token as a Bearer token, or provide
 			your Atlassian account email to use Basic authentication.

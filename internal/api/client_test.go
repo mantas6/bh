@@ -266,6 +266,17 @@ func TestHTTPErrorMessage(t *testing.T) {
 			"Invalid (HTTP 400); source: no such branch; bad, title: required",
 		},
 		{
+			"scopes",
+			api.HTTPError{StatusCode: 403, Message: "Your credentials lack one or more required privilege scopes.",
+				RequiredScopes: []string{"read:workspace:bitbucket"}, GrantedScopes: []string{"read:user:bitbucket", "read:pullrequest:bitbucket"}},
+			"Your credentials lack one or more required privilege scopes. (HTTP 403): required scopes: read:workspace:bitbucket; granted: read:user:bitbucket, read:pullrequest:bitbucket",
+		},
+		{
+			"scopes none granted",
+			api.HTTPError{StatusCode: 403, Message: "Forbidden", RequiredScopes: []string{"a"}},
+			"Forbidden (HTTP 403): required scopes: a; granted: none",
+		},
+		{
 			"detail and fields",
 			api.HTTPError{StatusCode: 400, Message: "Invalid", Detail: "see fields", Fields: map[string]any{"n": 1.0}},
 			"Invalid (HTTP 400): see fields; n: 1",
@@ -293,6 +304,72 @@ func TestErrorBodyDetailAndFields(t *testing.T) {
 	}
 	if got, want := err.Error(), "Bad request (HTTP 400): nope; source: branch not found"; got != want {
 		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+// scopeErrorBody is what Bitbucket sends when the token lacks a scope: the
+// "detail" member is an object, not a string.
+const scopeErrorBody = `{"type":"error","error":{"message":"Your credentials lack one or more required privilege scopes.",` +
+	`"detail":{"granted":["read:user:bitbucket","read:pullrequest:bitbucket"],"required":["read:workspace:bitbucket","read:user:bitbucket"]}}}`
+
+func TestScopeErrorBody(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle(http.MethodGet, "/workspaces/ws/members", 403, scopeErrorBody)
+	_, err := srv.APIClient().WorkspaceMembers(t.Context(), "ws", 0)
+	if !api.IsForbidden(err) {
+		t.Fatalf("err = %v, want 403", err)
+	}
+	he := asHTTPError(t, err)
+	if he.Message != "Your credentials lack one or more required privilege scopes." {
+		t.Errorf("Message = %q (must survive an object detail)", he.Message)
+	}
+	if he.Detail != "" {
+		t.Errorf("Detail = %q, want empty for a scope error", he.Detail)
+	}
+	if got := strings.Join(he.RequiredScopes, ","); got != "read:workspace:bitbucket,read:user:bitbucket" {
+		t.Errorf("RequiredScopes = %v", he.RequiredScopes)
+	}
+	if got := strings.Join(he.GrantedScopes, ","); got != "read:user:bitbucket,read:pullrequest:bitbucket" {
+		t.Errorf("GrantedScopes = %v", he.GrantedScopes)
+	}
+	if got := he.MissingScopes(); len(got) != 1 || got[0] != "read:workspace:bitbucket" {
+		t.Errorf("MissingScopes = %v", got)
+	}
+	want := "Your credentials lack one or more required privilege scopes. (HTTP 403): " +
+		"required scopes: read:workspace:bitbucket, read:user:bitbucket; granted: read:user:bitbucket, read:pullrequest:bitbucket"
+	if got := err.Error(); got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+func TestOddErrorBodyKeepsMessage(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name, body, wantMsg, wantDetail string
+		wantFields                      bool
+	}{
+		{"object detail", `{"error":{"message":"Nope","detail":{"reason":"x"}}}`, "Nope", `{"reason":"x"}`, false},
+		{"array detail", `{"error":{"message":"Nope","detail":["a", "b"]}}`, "Nope", `["a","b"]`, false},
+		{"null detail", `{"error":{"message":"Nope","detail":null}}`, "Nope", "", false},
+		{"array fields", `{"error":{"message":"Nope","detail":"d","fields":["x"]}}`, "Nope", "d", false},
+		{"object fields", `{"error":{"message":"Nope","fields":{"title":"required"}}}`, "Nope", "", true},
+		{"numeric message", `{"error":{"message":42,"detail":"d"}}`, "Forbidden", "d", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srv := apitest.New(t)
+			srv.Handle(http.MethodGet, "/user", 403, tt.body)
+			_, err := srv.APIClient().CurrentUser(t.Context())
+			he := asHTTPError(t, err)
+			if he.Message != tt.wantMsg || he.Detail != tt.wantDetail || (he.Fields != nil) != tt.wantFields {
+				t.Errorf("error = %+v, want message %q detail %q fields %v", he, tt.wantMsg, tt.wantDetail, tt.wantFields)
+			}
+			if len(he.RequiredScopes)+len(he.GrantedScopes) != 0 {
+				t.Errorf("unexpected scopes: %+v", he)
+			}
+		})
 	}
 }
 

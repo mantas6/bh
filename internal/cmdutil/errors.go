@@ -3,6 +3,7 @@ package cmdutil
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/mantas6/bh/internal/api"
 )
@@ -55,23 +56,61 @@ func (e *notLoggedInError) Is(target error) bool {
 	return target == api.ErrNoToken
 }
 
+// WithHint wraps err so that HintFor reports hint for it instead of the
+// generic one. The error message is unchanged and err stays reachable with
+// errors.Is/As.
+func WithHint(err error, hint string) error {
+	if err == nil {
+		return nil
+	}
+	return &hintedError{err: err, hint: hint}
+}
+
+type hintedError struct {
+	err  error
+	hint string
+}
+
+func (e *hintedError) Error() string { return e.err.Error() }
+func (e *hintedError) Unwrap() error { return e.err }
+
 // HintFor returns an actionable, user-facing suggestion to print after err,
-// or "" when there is none. It maps the api package's sentinel errors and
-// status predicates to CLI wording so api itself stays free of it.
+// or "" when there is none. A hint attached with WithHint wins; otherwise it
+// maps the api package's sentinel errors and status predicates to CLI
+// wording so api itself stays free of it.
 func HintFor(err error) string {
 	var nl *notLoggedInError
+	var he *hintedError
 	switch {
 	case err == nil, errors.As(err, &nl):
 		// NotLoggedInError already says what to do.
 		return ""
+	case errors.As(err, &he):
+		return he.hint
 	case errors.Is(err, api.ErrNoToken):
 		return "To authenticate, run: bh auth login (or set BH_TOKEN)"
 	case api.IsUnauthorized(err):
 		return "The token was rejected; it may be invalid or expired. To re-authenticate, run: bh auth login"
 	case api.IsForbidden(err):
+		if missing := MissingScopes(err); len(missing) == 1 {
+			return fmt.Sprintf("The token is missing the %s scope; create an API token that includes it, then run: bh auth login", missing[0])
+		} else if len(missing) > 1 {
+			return fmt.Sprintf("The token is missing the scopes %s; create an API token that includes them, then run: bh auth login",
+				strings.Join(missing, ", "))
+		}
 		return "The token lacks permission for this action; check its scopes and your access to the repository."
 	}
 	return ""
+}
+
+// MissingScopes returns the scopes a 403 scope error says the token lacks, or
+// nil when err is not such an error.
+func MissingScopes(err error) []string {
+	var he *api.HTTPError
+	if !errors.As(err, &he) {
+		return nil
+	}
+	return he.MissingScopes()
 }
 
 // IsUserCancellation reports whether err represents a user cancellation.

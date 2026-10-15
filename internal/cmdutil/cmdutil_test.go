@@ -25,6 +25,21 @@ func TestNotLoggedInError(t *testing.T) {
 	}
 }
 
+func TestWithHint(t *testing.T) {
+	t.Parallel()
+	if WithHint(nil, "h") != nil {
+		t.Error("WithHint(nil) should be nil")
+	}
+	inner := &api.HTTPError{StatusCode: 403}
+	err := WithHint(inner, "h")
+	if err.Error() != inner.Error() {
+		t.Errorf("Error() = %q, want unchanged %q", err, inner)
+	}
+	if !api.IsForbidden(err) {
+		t.Error("wrapped error should stay reachable")
+	}
+}
+
 func TestHintFor(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -39,6 +54,19 @@ func TestHintFor(t *testing.T) {
 		{"401", &api.HTTPError{StatusCode: 401}, "invalid or expired"},
 		{"wrapped 401", fmt.Errorf("x: %w", &api.HTTPError{StatusCode: 401}), "bh auth login"},
 		{"403", &api.HTTPError{StatusCode: 403}, "lacks permission"},
+		{
+			"403 missing scope",
+			fmt.Errorf("x: %w", &api.HTTPError{StatusCode: 403, RequiredScopes: []string{"read:workspace:bitbucket", "a"}, GrantedScopes: []string{"a"}}),
+			"missing the read:workspace:bitbucket scope; create an API token that includes it",
+		},
+		{
+			"403 missing scopes",
+			&api.HTTPError{StatusCode: 403, RequiredScopes: []string{"a", "b"}},
+			"missing the scopes a, b;",
+		},
+		{"403 all scopes granted", &api.HTTPError{StatusCode: 403, RequiredScopes: []string{"a"}, GrantedScopes: []string{"a"}}, "lacks permission"},
+		{"custom hint", WithHint(fmt.Errorf("x: %w", &api.HTTPError{StatusCode: 403}), "do this"), "do this"},
+		{"custom hint wrapped", fmt.Errorf("y: %w", WithHint(errors.New("boom"), "do that")), "do that"},
 		{"404", &api.HTTPError{StatusCode: 404}, ""},
 	}
 	for _, tt := range tests {

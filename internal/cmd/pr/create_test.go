@@ -87,6 +87,64 @@ func TestCreateBodyShape(t *testing.T) {
 	}
 }
 
+func TestCreateReviewerForbiddenExplainsScope(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle("GET", "/workspaces/myws/members", 403, scopeErrorBody)
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := &CreateOptions{
+		IO:        ios,
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(pushedStub(t, "feature")),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
+		Title:     "My title",
+		Head:      "feature",
+		Reviewers: []string{"{bob-uuid}", "julius"},
+	}
+	err := createRun(t.Context(), opts)
+	if err == nil || !strings.HasPrefix(err.Error(), `resolving reviewer "julius": listing workspace members: `) ||
+		!strings.Contains(err.Error(), "required scopes: read:workspace:bitbucket") {
+		t.Fatalf("err = %v", err)
+	}
+	if hint := cmdutil.HintFor(err); !strings.Contains(hint, "read:workspace:bitbucket token scope") {
+		t.Errorf("hint = %q", hint)
+	}
+	for _, r := range srv.Requests() {
+		if r.Method == "POST" {
+			t.Error("PR must not be created when reviewer resolution fails")
+		}
+	}
+}
+
+func TestCreateReviewerByUUIDSkipsLookup(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t) // no members route: a lookup would fail the test
+	srv.Handle("POST", "/repositories/myws/myrepo/pullrequests", 201, createdPRResponse())
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := &CreateOptions{
+		IO:        ios,
+		APIClient: cmdtest.ClientFunc(srv),
+		Git:       cmdtest.GitFunc(pushedStub(t, "feature")),
+		BaseRepo:  cmdtest.BaseRepoFunc(cmdtest.OriginRemote()),
+		Title:     "My title",
+		Head:      "feature",
+		Reviewers: []string{"{bob-uuid}", "557058:a1b2c3d4-e5f6-7890-abcd-ef1234567890", "{BOB-uuid}"},
+	}
+	if err := createRun(t.Context(), opts); err != nil {
+		t.Fatalf("createRun: %v", err)
+	}
+	var body struct {
+		Reviewers []map[string]string `json:"reviewers"`
+	}
+	cmdtest.RequireRequest(t, srv, "POST", "/pullrequests").DecodeJSON(t, &body)
+	if len(body.Reviewers) != 2 || body.Reviewers[0]["uuid"] != "{bob-uuid}" ||
+		body.Reviewers[1]["account_id"] != "557058:a1b2c3d4-e5f6-7890-abcd-ef1234567890" {
+		t.Errorf("reviewers = %v", body.Reviewers)
+	}
+}
+
 func TestCreateAutoPushTTYYes(t *testing.T) {
 	t.Parallel()
 	srv := apitest.New(t)

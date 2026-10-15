@@ -24,28 +24,40 @@ func normalizeUUID(s string) string {
 
 // FindMembers resolves each query to a workspace member by nickname, display
 // name (both case-insensitive), uuid (with or without braces), or account_id,
-// fetching the member list once. The result is keyed by the trimmed query;
-// blank queries are skipped. Every query that has no match or is ambiguous is
-// reported in the (joined) error.
+// fetching the member list once; see MatchMembers. A failure to list the
+// members is wrapped as "listing workspace members: ...".
 func (c *Client) FindMembers(ctx context.Context, workspace string, queries []string) (map[string]User, error) {
-	found := map[string]User{}
-	var wanted []string
-	for _, q := range queries {
-		if q = strings.TrimSpace(q); q != "" {
-			wanted = append(wanted, q)
-		}
+	if !hasQuery(queries) {
+		return map[string]User{}, nil
 	}
-	if len(wanted) == 0 {
-		return found, nil
-	}
-
 	members, err := c.WorkspaceMembers(ctx, workspace, 0)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listing workspace members: %w", err)
 	}
+	return MatchMembers(members, queries)
+}
 
+func hasQuery(queries []string) bool {
+	for _, q := range queries {
+		if strings.TrimSpace(q) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// MatchMembers resolves each query against members by nickname, display name
+// (both case-insensitive), uuid (with or without braces), or account_id. The
+// result is keyed by the trimmed query; blank queries are skipped. Every
+// query that has no match or is ambiguous is reported in the (joined) error.
+func MatchMembers(members []WorkspaceMember, queries []string) (map[string]User, error) {
+	found := map[string]User{}
 	var errs []error
-	for _, q := range wanted {
+	for _, q := range queries {
+		q = strings.TrimSpace(q)
+		if q == "" {
+			continue
+		}
 		if _, ok := found[q]; ok {
 			continue
 		}

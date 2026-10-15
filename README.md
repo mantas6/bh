@@ -46,6 +46,12 @@ removed by Atlassian in July 2026 and are not supported.
    - `read:pullrequest:bitbucket`
    - `write:pullrequest:bitbucket` (for mutating commands such as create,
      merge, approve, and comment)
+   - `read:workspace:bitbucket` (to resolve reviewer names for
+     `pr create --reviewer` and `pr edit --add-reviewer`; not needed when
+     reviewers are passed as `{uuid}` or account ID)
+
+   When a token lacks a scope, errors name it, e.g.
+   `... (HTTP 403): required scopes: read:workspace:bitbucket; granted: ...`.
 
 2. Log in:
 
@@ -180,6 +186,9 @@ bh pr view
 
 # Create a pull request, filling title and body from commits
 bh pr create --fill --base main --reviewer alice,bob
+
+# Add a reviewer by {uuid} or account ID (skips the workspace member lookup)
+bh pr edit 123 --add-reviewer '{a1b2c3d4-e5f6-7890-abcd-ef1234567890}'
 
 # Check out a pull request locally
 bh pr checkout 123
