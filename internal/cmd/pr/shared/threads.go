@@ -56,6 +56,73 @@ func BuildThreads(comments []api.Comment, unresolved bool) *Threads {
 	return ts
 }
 
+// Thread returns the comments of root's thread: root first, then its replies
+// depth first.
+func (ts *Threads) Thread(root *api.Comment) []*api.Comment {
+	var out []*api.Comment
+	var visit func(c *api.Comment)
+	visit = func(c *api.Comment) {
+		out = append(out, c)
+		for _, child := range ts.children[c.ID] {
+			visit(child)
+		}
+	}
+	visit(root)
+	return out
+}
+
+// Filter keeps only the threads for which keep returns true. keep is given
+// the thread's comments as returned by Thread (root first).
+func (ts *Threads) Filter(keep func(thread []*api.Comment) bool) {
+	roots := ts.Roots[:0:0]
+	for _, root := range ts.Roots {
+		if keep(ts.Thread(root)) {
+			roots = append(roots, root)
+		}
+	}
+	ts.Roots = roots
+}
+
+// KeepNewest keeps the n most recently started threads (n > 0), still oldest
+// first.
+func (ts *Threads) KeepNewest(n int) {
+	if n > 0 && len(ts.Roots) > n {
+		ts.Roots = ts.Roots[len(ts.Roots)-n:]
+	}
+}
+
+// TopLevel drops every reply, leaving only the top-level comments.
+func (ts *Threads) TopLevel() {
+	ts.children = map[int][]*api.Comment{}
+}
+
+// LastComment returns the most recently created comment of a thread (the
+// higher id wins a tie), or nil for an empty thread.
+func LastComment(thread []*api.Comment) *api.Comment {
+	var last *api.Comment
+	for _, c := range thread {
+		if last == nil || c.CreatedOn.After(last.CreatedOn) ||
+			(c.CreatedOn.Equal(last.CreatedOn) && c.ID > last.ID) {
+			last = c
+		}
+	}
+	return last
+}
+
+// SameUser reports whether a and b are the same account, comparing UUIDs,
+// then account ids, then nicknames, whichever both carry first.
+func SameUser(a, b *api.User) bool {
+	switch {
+	case a.UUID != "" && b.UUID != "":
+		return a.UUID == b.UUID
+	case a.AccountID != "" && b.AccountID != "":
+		return a.AccountID == b.AccountID
+	case a.Nickname != "" && b.Nickname != "":
+		return a.Nickname == b.Nickname
+	}
+	return false
+}
+
 // Walk calls fn for every comment in the threads, depth first, with its
 // nesting level.
 func (ts *Threads) Walk(fn func(c *api.Comment, level int)) {
@@ -114,23 +181,33 @@ func (ts *Threads) JSON(comments []api.Comment) []CommentJSON {
 	return out
 }
 
+// CommentTime returns how WriteThreads renders comment times: relative to now
+// on a terminal ("5 minutes ago"), otherwise an RFC 3339 timestamp in local
+// time, which stays exact in logs and scripts.
+func CommentTime(isTTY bool, now time.Time) func(time.Time) string {
+	if isTTY {
+		return func(t time.Time) string { return output.RelativeTime(t, now) }
+	}
+	return func(t time.Time) string { return t.Local().Format(time.RFC3339) }
+}
+
 // WriteThreads renders the threads to w: each comment is a header line
 // `#id author · time[ · path:line][ [resolved]]` followed by its indented body
 // and a blank line; replies are nested two spaces deeper than their parent.
-// Times are relative to now.
-func WriteThreads(w io.Writer, cs *output.ColorScheme, now time.Time, ts *Threads) error {
+// Times are rendered with formatTime (see CommentTime).
+func WriteThreads(w io.Writer, cs *output.ColorScheme, formatTime func(time.Time) string, ts *Threads) error {
 	var b strings.Builder
 	ts.Walk(func(c *api.Comment, level int) {
-		writeComment(&b, cs, now, c, level)
+		writeComment(&b, cs, formatTime, c, level)
 	})
 	_, err := io.WriteString(w, b.String())
 	return err
 }
 
-func writeComment(b *strings.Builder, cs *output.ColorScheme, now time.Time, c *api.Comment, level int) {
+func writeComment(b *strings.Builder, cs *output.ColorScheme, formatTime func(time.Time) string, c *api.Comment, level int) {
 	indent := strings.Repeat(" ", level*2)
 
-	fmt.Fprintf(b, "%s#%d %s · %s", indent, c.ID, UserName(&c.User), output.RelativeTime(c.CreatedOn, now))
+	fmt.Fprintf(b, "%s#%d %s · %s", indent, c.ID, UserName(&c.User), formatTime(c.CreatedOn))
 	if s := InlineString(c.Inline); s != "" {
 		fmt.Fprintf(b, " · %s", s)
 	}

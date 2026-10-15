@@ -99,3 +99,17 @@ func TestResolveReopenDeleteComment(t *testing.T) {
 		t.Errorf("delete: %v", err)
 	}
 }
+
+func TestGetComment(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle(http.MethodGet, "/repositories/ws/repo/pullrequests/3/comments/55", 200,
+		map[string]any{"id": 55, "parent": map[string]any{"id": 54}})
+	got, err := srv.APIClient().GetComment(t.Context(), "ws/repo", 3, 55)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != 55 || got.Parent == nil || got.Parent.ID != 54 {
+		t.Errorf("got %+v", got)
+	}
+}

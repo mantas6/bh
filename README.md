@@ -127,10 +127,10 @@ The following remote URL forms are recognized:
 | `bh pr decline` | Decline a pull request (alias: `close`) |
 | `bh pr comment list` | List comments on a pull request |
 | `bh pr comment add` | Add a comment to a pull request |
-| `bh pr comment reply` | Reply to a pull request comment |
+| `bh pr comment reply` | Reply to a pull request comment (`--resolve` to resolve the thread too) |
 | `bh pr comment delete` | Delete a pull request comment |
-| `bh pr comment resolve` | Resolve a pull request comment thread |
-| `bh pr comment reopen` | Reopen (unresolve) a pull request comment thread |
+| `bh pr comment resolve` | Resolve one or more pull request comment threads |
+| `bh pr comment reopen` | Reopen (unresolve) one or more pull request comment threads |
 | `bh version` | Show the bh version (also `bh --version`) |
 
 `pr list`, `pr view`, `pr commits`, `pr checks` and `pr comment list` take
@@ -218,7 +218,8 @@ hint is printed after the description, just above the URL line (which stays
 last). Pass `--comments` (`-c`) to print the comment threads instead, in the
 same format as `bh pr comment list`: a `#id author · time · path:line
 [resolved]` header per comment, indented bodies, and replies nested under
-their parent. `--unresolved` shows only unresolved threads and implies
+their parent (times are relative on a terminal, RFC 3339 timestamps
+otherwise). `--unresolved` shows only unresolved threads and implies
 `--comments`. `--comments` cannot be combined with `--json` or `--web`; use
 `bh pr comment list --json` for comments as JSON.
 
@@ -285,6 +286,61 @@ Build   SUCCESSFUL  about an hour ago  https://ci.example.com/build/42
 Test    SUCCESSFUL  about an hour ago  https://ci.example.com/test/42
 ```
 
+### Comment threads
+
+`bh pr comment list` prints the comment threads oldest first, each comment as
+a `#id author · time · path:line [resolved]` header (the `path:line` and
+`[resolved]` parts only when they apply), its indented body and a blank line,
+with replies nested two spaces under their parent. On a terminal times are
+relative (`5 minutes ago`); when standard output is not a terminal they are
+RFC 3339 timestamps in local time (`2026-09-10T11:55:00+02:00`), so piped
+output stays exact.
+
+Filters select whole threads, which are always printed complete, and can be
+combined:
+
+| Flag | Keeps |
+| --- | --- |
+| `--unresolved` | threads that are not resolved |
+| `--needs-reply` | unresolved threads whose last comment is not by you (the authenticated user) |
+| `--since <when>` | threads with a comment newer than `<when>`: an RFC 3339 time (`2026-09-10T12:00:00Z`), a local date (`2026-09-10`), a duration ago (`90m`, `2h`, `3d`, `1w`) or a comment id (comments after `#id`) |
+| `--author <user>` | threads started by a user: nickname or display name (case-insensitive), `{uuid}`, account id, or `@me` |
+
+`--top-level` then leaves out the replies, and `--limit N` (`-L`) keeps the
+**newest** N threads (by when they were started), still printed oldest first
+(earlier versions kept the oldest threads), so `bh pr comment list -L 3` shows
+the latest discussion without piping through `tail`. `--json` prints the comments of the selected threads (see below).
+
+```console
+$ bh pr comment list 123 --needs-reply
+#1 ada · 2 hours ago · main.go:42
+  Rename this
+
+  #2 me · 30 minutes ago
+    Done
+
+  #3 ada · 5 minutes ago
+    Not quite, see the other call site too
+
+```
+
+`bh pr comment reply <pr> <comment-id> --resolve` posts the reply, prints its
+URL, then resolves the thread the comment belongs to (Bitbucket keeps the
+resolution on the thread's top-level comment, so replying to a nested reply
+resolves its top-level comment) and prints `✓ Resolved comment #<id>` on
+stderr. When posting the reply fails nothing is resolved; when resolving fails
+after the reply was posted, the URL is still printed and bh exits non-zero.
+
+`bh pr comment resolve` and `bh pr comment reopen` take one or more comment
+ids and report each on stderr (`✓ Resolved comment #5`). A failing id is
+reported (`✗ Failed to resolve comment #6: ...`) and the remaining ids are
+still processed; the command then exits with status 1.
+
+```sh
+bh pr comment reply 123 881626438 --body "Fixed in 63a5b8b" --resolve
+bh pr comment resolve 123 881626438 881626439 881626440
+```
+
 ### JSON output
 
 `--json` (on `pr list`, `pr view`, `pr commits`, `pr checks` and
@@ -300,8 +356,8 @@ request fields such as `merge_commit` and `closed_by` stay present and are
 `null` until set.
 
 `bh pr comment list --json` prints the comments of the listed threads in the
-API's order (deleted comments are left out, and `--unresolved` / `--limit`
-apply as in the text view). Each comment keeps the raw API fields (`parent`,
+API's order (deleted comments are left out, and the thread filters,
+`--top-level` and `--limit` apply as in the text view). Each comment keeps the raw API fields (`parent`,
 `inline` and `resolution` are omitted when unset) and adds three derived
 fields:
 
@@ -401,6 +457,15 @@ bh pr merge 123 --squash --delete-branch
 
 # Comment on a pull request
 bh pr comment add 123 --body "Looks good to me"
+
+# Threads waiting for your answer; the five newest threads; what changed in the last 2 hours
+bh pr comment list 123 --needs-reply
+bh pr comment list 123 -L 5
+bh pr comment list 123 --since 2h
+
+# Reply and resolve in one go; resolve several threads at once
+bh pr comment reply 123 456 --body "Done" --resolve
+bh pr comment resolve 123 456 457 458
 
 # Add an inline comment on a specific line
 bh pr comment add 123 --path main.go --line 42 --body "Rename this"

@@ -2,6 +2,7 @@ package comment
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/mantas6/bh/internal/api"
@@ -22,6 +23,8 @@ type ReplyOptions struct {
 	CommentID int
 	Body      string
 	BodyFile  string
+	// Resolve resolves the comment's thread once the reply is posted.
+	Resolve bool
 }
 
 // NewCmdReply creates the "pr comment reply" command.
@@ -36,7 +39,12 @@ func NewCmdReply(f *cmdutil.Factory, runF func(*ReplyOptions) error) *cobra.Comm
 	cmd := &cobra.Command{
 		Use:   "reply {<number> | <url> | <branch>} <comment-id>",
 		Short: "Reply to a pull request comment",
-		Args:  cmdutil.ExactArgs(2, "a pull request and a comment id are required"),
+		Long: `Reply to a pull request comment and print the reply's URL.
+
+<comment-id> is the id shown by ` + "`bh pr comment list`" + ` (any comment of a
+thread). With --resolve the thread is resolved after the reply is posted; if
+posting the reply fails nothing is resolved.`,
+		Args: cmdutil.ExactArgs(2, "a pull request and a comment id are required"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Arg = args[0]
 			id, err := parseCommentID(args[1])
@@ -56,6 +64,7 @@ func NewCmdReply(f *cmdutil.Factory, runF func(*ReplyOptions) error) *cobra.Comm
 	}
 
 	cmdutil.AddBodyFlags(cmd, &opts.Body, &opts.BodyFile)
+	cmd.Flags().BoolVar(&opts.Resolve, "resolve", false, "Resolve the comment thread after replying")
 
 	return cmd
 }
@@ -84,5 +93,29 @@ func replyRun(ctx context.Context, opts *ReplyOptions) error {
 	}
 
 	printCreated(opts.IO, comment)
+
+	if !opts.Resolve {
+		return nil
+	}
+	return resolveThread(ctx, opts.IO, client, repo.FullName(), pr.ID, opts.CommentID)
+}
+
+// maxThreadDepth bounds the walk up a thread's parent links.
+const maxThreadDepth = 100
+
+// resolveThread resolves the thread containing commentID, whose resolution
+// Bitbucket records on the top-level comment, and reports it on stderr.
+func resolveThread(ctx context.Context, ios *cmdutil.IOStreams, client *api.Client, repo string, prID, commentID int) error {
+	root, err := client.GetComment(ctx, repo, prID, commentID)
+	for i := 0; err == nil && root.Parent != nil && i < maxThreadDepth; i++ {
+		root, err = client.GetComment(ctx, repo, prID, root.Parent.ID)
+	}
+	if err == nil && root.Resolution == nil {
+		err = client.ResolveComment(ctx, repo, prID, root.ID)
+	}
+	if err != nil {
+		return fmt.Errorf("reply posted, but resolving the thread of comment #%d failed: %w", commentID, err)
+	}
+	fmt.Fprintf(ios.ErrOut, "%s Resolved comment #%d\n", ios.ErrColorScheme().SuccessIcon(), root.ID)
 	return nil
 }

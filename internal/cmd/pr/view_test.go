@@ -291,6 +291,32 @@ func viewWithComments(t *testing.T, pr *api.PullRequest, comments []api.Comment,
 	return out.String(), srv
 }
 
+// ttyNoColor makes stdout a terminal without colour, for relative times in
+// plain text.
+func ttyNoColor(ios *cmdutil.IOStreams) {
+	ios.SetStdoutTTY(true)
+	ios.Getenv = func(k string) string {
+		if k == "NO_COLOR" {
+			return "1"
+		}
+		return ""
+	}
+}
+
+// TestViewCommentsAbsoluteTimesWhenPiped checks that comment times are RFC
+// 3339 timestamps when stdout is not a terminal.
+func TestViewCommentsAbsoluteTimesWhenPiped(t *testing.T) {
+	t.Parallel()
+	comments := viewComments()
+	got, _ := viewWithComments(t, cmdtest.SamplePR(), comments, func(o *ViewOptions) {
+		o.Comments = true
+	})
+	want := "#3 cara · " + comments[2].CreatedOn.Local().Format(time.RFC3339) + "\n  Why?\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("missing %q:\n%s", want, got)
+	}
+}
+
 func viewComments() []api.Comment {
 	root := cmdtest.CommentAt(1, "ada", "Rename this", 120)
 	root.Inline = &api.Inline{Path: "main.go", To: new(42)}
@@ -305,6 +331,7 @@ func TestViewComments(t *testing.T) {
 	t.Parallel()
 	got, _ := viewWithComments(t, cmdtest.SamplePR(), viewComments(), func(o *ViewOptions) {
 		o.Comments = true
+		ttyNoColor(o.IO)
 	})
 
 	want := "This does things.\n" +
@@ -333,6 +360,7 @@ func TestViewCommentsUnresolved(t *testing.T) {
 	got, _ := viewWithComments(t, cmdtest.SamplePR(), viewComments(), func(o *ViewOptions) {
 		o.Comments = true
 		o.Unresolved = true
+		ttyNoColor(o.IO)
 	})
 	if !strings.Contains(got, "Unresolved comments:\n#3 cara · 5 minutes ago\n  Why?\n\n") {
 		t.Errorf("missing unresolved thread:\n%s", got)

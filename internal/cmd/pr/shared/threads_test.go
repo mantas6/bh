@@ -1,8 +1,10 @@
 package shared
 
 import (
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/cmd/cmdtest"
@@ -12,7 +14,7 @@ import (
 func renderThreads(t *testing.T, ts *Threads) string {
 	t.Helper()
 	var b strings.Builder
-	if err := WriteThreads(&b, output.NewColorScheme(false), cmdtest.FixedNow(), ts); err != nil {
+	if err := WriteThreads(&b, output.NewColorScheme(false), CommentTime(true, cmdtest.FixedNow()), ts); err != nil {
 		t.Fatalf("WriteThreads: %v", err)
 	}
 	return b.String()
@@ -168,5 +170,107 @@ func TestInlineString(t *testing.T) {
 		if got := InlineString(tt.in); got != tt.want {
 			t.Errorf("%s: got %q, want %q", tt.name, got, tt.want)
 		}
+	}
+}
+
+func rootIDs(ts *Threads) []int {
+	ids := []int{}
+	for _, r := range ts.Roots {
+		ids = append(ids, r.ID)
+	}
+	return ids
+}
+
+func TestThreadsThreadAndFilter(t *testing.T) {
+	t.Parallel()
+	ts := BuildThreads(sampleThreads(), false)
+
+	var thread []int
+	for _, c := range ts.Thread(ts.Roots[0]) {
+		thread = append(thread, c.ID)
+	}
+	if !slices.Equal(thread, []int{1, 2, 4}) {
+		t.Errorf("Thread(#1) = %v, want [1 2 4]", thread)
+	}
+
+	ts.Filter(func(thread []*api.Comment) bool { return len(thread) == 1 })
+	if got := rootIDs(ts); !slices.Equal(got, []int{3}) {
+		t.Errorf("roots after Filter = %v, want [3]", got)
+	}
+}
+
+func TestThreadsKeepNewest(t *testing.T) {
+	t.Parallel()
+	ts := BuildThreads(sampleThreads(), false) // roots #1 (oldest), #3
+	ts.KeepNewest(0)
+	if got := rootIDs(ts); !slices.Equal(got, []int{1, 3}) {
+		t.Errorf("KeepNewest(0) = %v, want all", got)
+	}
+	ts.KeepNewest(5)
+	if got := rootIDs(ts); !slices.Equal(got, []int{1, 3}) {
+		t.Errorf("KeepNewest(5) = %v, want all", got)
+	}
+	ts.KeepNewest(1)
+	if got := rootIDs(ts); !slices.Equal(got, []int{3}) {
+		t.Errorf("KeepNewest(1) = %v, want [3]", got)
+	}
+}
+
+func TestThreadsTopLevel(t *testing.T) {
+	t.Parallel()
+	comments := sampleThreads()
+	ts := BuildThreads(comments, false)
+	ts.TopLevel()
+	got := renderThreads(t, ts)
+	if strings.Contains(got, "#2") || strings.Contains(got, "#4") {
+		t.Errorf("replies should be dropped:\n%s", got)
+	}
+	if len(ts.JSON(comments)) != 2 {
+		t.Errorf("JSON should hold the two top-level comments only")
+	}
+}
+
+func TestLastComment(t *testing.T) {
+	t.Parallel()
+	a := cmdtest.CommentAt(1, "ada", "a", 30)
+	b := cmdtest.CommentAt(2, "bob", "b", 10)
+	c := cmdtest.CommentAt(3, "cara", "c", 10) // same time as b, higher id
+	if got := LastComment([]*api.Comment{&a, &c, &b}); got.ID != 3 {
+		t.Errorf("LastComment = #%d, want #3", got.ID)
+	}
+	if LastComment(nil) != nil {
+		t.Error("LastComment(nil) should be nil")
+	}
+}
+
+func TestSameUser(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		a, b api.User
+		want bool
+	}{
+		{api.User{UUID: "{1}", Nickname: "x"}, api.User{UUID: "{1}", Nickname: "y"}, true},
+		{api.User{UUID: "{1}", Nickname: "x"}, api.User{UUID: "{2}", Nickname: "x"}, false},
+		{api.User{AccountID: "a"}, api.User{UUID: "{1}", AccountID: "a"}, true},
+		{api.User{Nickname: "x"}, api.User{Nickname: "x"}, true},
+		{api.User{Nickname: "x"}, api.User{UUID: "{1}"}, false},
+		{api.User{}, api.User{}, false},
+	}
+	for i, tt := range tests {
+		if got := SameUser(&tt.a, &tt.b); got != tt.want {
+			t.Errorf("%d: SameUser(%+v, %+v) = %v, want %v", i, tt.a, tt.b, got, tt.want)
+		}
+	}
+}
+
+func TestCommentTime(t *testing.T) {
+	t.Parallel()
+	now := cmdtest.FixedNow()
+	at := now.Add(-5 * time.Minute)
+	if got := CommentTime(true, now)(at); got != "5 minutes ago" {
+		t.Errorf("TTY = %q", got)
+	}
+	if got, want := CommentTime(false, now)(at), at.Local().Format(time.RFC3339); got != want {
+		t.Errorf("non-TTY = %q, want %q", got, want)
 	}
 }

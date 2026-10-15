@@ -2,14 +2,30 @@ package comment
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mantas6/bh/internal/api"
 	"github.com/mantas6/bh/internal/api/apitest"
 	"github.com/mantas6/bh/internal/cmd/cmdtest"
 	"github.com/mantas6/bh/internal/cmdutil"
 )
+
+// jsonIDs decodes `comment list --json` output into its comment ids.
+func jsonIDs(t *testing.T, b []byte) []int {
+	t.Helper()
+	var got []api.Comment
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("json: %v\n%s", err, b)
+	}
+	ids := []int{}
+	for _, c := range got {
+		ids = append(ids, c.ID)
+	}
+	return ids
+}
 
 // listComments registers the PR lookup and comment list responses.
 func listComments(srv *apitest.Server, comments []api.Comment) {
@@ -253,13 +269,13 @@ func TestListLimitCountsThreads(t *testing.T) {
 		t.Fatalf("listRun: %v", err)
 	}
 	got := out.String()
-	for _, want := range []string{"first thread", "reply one", "reply two"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("missing %q from the first thread:\n%s", want, got)
-		}
+	if !strings.Contains(got, "second thread") {
+		t.Errorf("--limit 1 should keep the newest thread:\n%s", got)
 	}
-	if strings.Contains(got, "second thread") {
-		t.Errorf("second thread should be cut by --limit 1:\n%s", got)
+	for _, old := range []string{"first thread", "reply one", "reply two"} {
+		if strings.Contains(got, old) {
+			t.Errorf("%q from the oldest thread should be cut by --limit 1:\n%s", old, got)
+		}
 	}
 
 	// All comments are fetched; the limit is not passed to the API.
@@ -276,21 +292,22 @@ func TestListLimitJSONCountsThreads(t *testing.T) {
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
 	opts := newListOpts(t, srv, ios)
-	opts.Limit = 1
+	opts.Limit = 2
 	opts.JSON = true
 	if err := listRun(t.Context(), opts); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
-	var got []api.Comment
-	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
-		t.Fatalf("json: %v\n%s", err, out.String())
+	if got := jsonIDs(t, out.Bytes()); !slices.Equal(got, []int{1, 2, 3, 4}) {
+		t.Errorf("ids = %v, want [1 2 3 4]", got)
 	}
-	var ids []int
-	for _, c := range got {
-		ids = append(ids, c.ID)
+
+	out.Reset()
+	opts.Limit = 1
+	if err := listRun(t.Context(), opts); err != nil {
+		t.Fatalf("listRun: %v", err)
 	}
-	if len(ids) != 3 || ids[0] != 1 || ids[1] != 2 || ids[2] != 3 {
-		t.Errorf("ids = %v, want [1 2 3]", ids)
+	if got := jsonIDs(t, out.Bytes()); !slices.Equal(got, []int{4}) {
+		t.Errorf("ids = %v, want [4] (the newest thread)", got)
 	}
 }
 
@@ -400,6 +417,17 @@ func TestListByURLWithoutGitOrBaseRepo(t *testing.T) {
 	}
 }
 
+// ttyNoColor makes stdout a terminal without colour.
+func ttyNoColor(ios *cmdutil.IOStreams) {
+	ios.SetStdoutTTY(true)
+	ios.Getenv = func(k string) string {
+		if k == "NO_COLOR" {
+			return "1"
+		}
+		return ""
+	}
+}
+
 // TestListExactOutput locks the text format agents parse:
 // `#id author · time · path:line [resolved]`, indented bodies, nested replies.
 func TestListExactOutput(t *testing.T) {
@@ -414,6 +442,7 @@ func TestListExactOutput(t *testing.T) {
 	listComments(srv, []api.Comment{root, reply, open})
 
 	ios, _, out, _ := cmdutil.TestIOStreams()
+	ttyNoColor(ios)
 	if err := listRun(t.Context(), newListOpts(t, srv, ios)); err != nil {
 		t.Fatalf("listRun: %v", err)
 	}
@@ -450,4 +479,282 @@ func TestListJSONFields(t *testing.T) {
 	if got, want := out.String(), `[[1,1,true,"ada"],[2,1,true,"bob"]]`+"\n"; got != want {
 		t.Errorf("output = %q, want %q", got, want)
 	}
+}
+
+func TestListAbsoluteTimesWhenPiped(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	root := cmdtest.CommentAt(1, "ada", "Rename this", 120)
+	root.Inline = &api.Inline{Path: "main.go", To: new(42)}
+	root.Resolution = &api.Resolution{Type: "resolved"}
+	reply := cmdtest.CommentAt(2, "bob", "Done", 30)
+	reply.Parent = &api.CommentRef{ID: 1}
+	listComments(srv, []api.Comment{root, reply})
+
+	ios, _, out, _ := cmdutil.TestIOStreams() // stdout is not a terminal
+	if err := listRun(t.Context(), newListOpts(t, srv, ios)); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	stamp := func(c api.Comment) string { return c.CreatedOn.Local().Format(time.RFC3339) }
+	want := "#1 ada · " + stamp(root) + " · main.go:42 [resolved]\n" +
+		"  Rename this\n" +
+		"\n" +
+		"  #2 bob · " + stamp(reply) + "\n" +
+		"    Done\n" +
+		"\n"
+	if got := out.String(); got != want {
+		t.Errorf("output mismatch\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// commentBy returns a comment by the cmdtest.User fixture for nickname, which
+// carries a UUID like the API's comments do.
+func commentBy(id int, nickname, raw string, minutesAgo int, parent int) api.Comment {
+	c := cmdtest.CommentAt(id, nickname, raw, minutesAgo)
+	c.User = cmdtest.User(nickname)
+	if parent > 0 {
+		c.Parent = &api.CommentRef{ID: parent}
+	}
+	return c
+}
+
+// reviewComments returns threads as seen by "me":
+//
+//	#1 bob, unanswered                      → needs a reply
+//	#2 bob, answered by me (#3)             → answered
+//	#4 bob, me (#5), bob again (#6)         → needs a reply
+//	#7 bob, resolved                        → resolved
+//	#8 me, unanswered                       → mine
+func reviewComments() []api.Comment {
+	resolved := commentBy(7, "bob", "resolved", 20, 0)
+	resolved.Resolution = &api.Resolution{Type: "resolved"}
+	return []api.Comment{
+		commentBy(1, "bob", "unanswered", 100, 0),
+		commentBy(2, "bob", "answered", 90, 0),
+		commentBy(3, "me", "fixed", 80, 2),
+		commentBy(4, "bob", "follow-up", 70, 0),
+		commentBy(5, "me", "fixed too", 60, 4),
+		commentBy(6, "bob", "not quite", 50, 5),
+		resolved,
+		commentBy(8, "me", "note to self", 10, 0),
+	}
+}
+
+func listReview(t *testing.T, setup func(*ListOptions)) ([]int, *apitest.Server) {
+	t.Helper()
+	srv := apitest.New(t)
+	listComments(srv, reviewComments())
+	srv.Handle("GET", "/user", 200, cmdtest.User("me"))
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newListOpts(t, srv, ios)
+	opts.JSON = true
+	setup(opts)
+	if err := listRun(t.Context(), opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	return jsonIDs(t, out.Bytes()), srv
+}
+
+func TestListNeedsReply(t *testing.T) {
+	t.Parallel()
+	ids, srv := listReview(t, func(o *ListOptions) { o.NeedsReply = true })
+	if want := []int{1, 4, 5, 6}; !slices.Equal(ids, want) {
+		t.Errorf("ids = %v, want %v", ids, want)
+	}
+	cmdtest.RequireRequest(t, srv, "GET", "/user")
+}
+
+func TestListNeedsReplyWithLimitKeepsNewest(t *testing.T) {
+	t.Parallel()
+	ids, _ := listReview(t, func(o *ListOptions) {
+		o.NeedsReply = true
+		o.Limit = 1
+	})
+	if want := []int{4, 5, 6}; !slices.Equal(ids, want) {
+		t.Errorf("ids = %v, want %v", ids, want)
+	}
+}
+
+func TestListWithoutUserFiltersSkipsUserLookup(t *testing.T) {
+	t.Parallel()
+	_, srv := listReview(t, func(o *ListOptions) { o.Author = "bob" })
+	if cmdtest.FindRequest(srv, "GET", "/user") != nil {
+		t.Error("the current user should only be fetched for --needs-reply or --author @me")
+	}
+}
+
+func TestListAuthor(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		author string
+		want   []int
+	}{
+		{"@me", []int{8}},
+		{"bob", []int{1, 2, 3, 4, 5, 6, 7}},
+		{"BOB", []int{1, 2, 3, 4, 5, 6, 7}}, // case-insensitive
+		{"Me", []int{8}},                    // display name
+		{"{me-uuid}", []int{8}},
+		{"nobody", []int{}},
+	}
+	for _, tt := range tests {
+		ids, _ := listReview(t, func(o *ListOptions) { o.Author = tt.author })
+		if !slices.Equal(ids, tt.want) {
+			t.Errorf("--author %s: ids = %v, want %v", tt.author, ids, tt.want)
+		}
+	}
+}
+
+func TestListSince(t *testing.T) {
+	t.Parallel()
+	now := cmdtest.FixedNow()
+	tests := []struct {
+		since string
+		want  []int
+	}{
+		// A thread with any newer comment is shown complete.
+		{"55m", []int{4, 5, 6, 7, 8}},
+		{"15m", []int{8}},
+		{now.Add(-25 * time.Minute).Format(time.RFC3339), []int{7, 8}},
+		{"5", []int{4, 5, 6, 7, 8}}, // comment id
+		{"#6", []int{7, 8}},         // comment id with #
+		{"1d", []int{1, 2, 3, 4, 5, 6, 7, 8}},
+	}
+	for _, tt := range tests {
+		ids, _ := listReview(t, func(o *ListOptions) { o.Since = tt.since })
+		if !slices.Equal(ids, tt.want) {
+			t.Errorf("--since %s: ids = %v, want %v", tt.since, ids, tt.want)
+		}
+	}
+}
+
+func TestListTopLevel(t *testing.T) {
+	t.Parallel()
+	ids, _ := listReview(t, func(o *ListOptions) { o.TopLevel = true })
+	if want := []int{1, 2, 4, 7, 8}; !slices.Equal(ids, want) {
+		t.Errorf("ids = %v, want %v", ids, want)
+	}
+}
+
+func TestListTopLevelAppliesAfterNeedsReply(t *testing.T) {
+	t.Parallel()
+	// #4's last comment (#6) is a reply, yet the thread needs a reply.
+	ids, _ := listReview(t, func(o *ListOptions) {
+		o.NeedsReply = true
+		o.TopLevel = true
+	})
+	if want := []int{1, 4}; !slices.Equal(ids, want) {
+		t.Errorf("ids = %v, want %v", ids, want)
+	}
+}
+
+func TestListTopLevelText(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	listComments(srv, threadedComments())
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newListOpts(t, srv, ios)
+	opts.TopLevel = true
+	if err := listRun(t.Context(), opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	got := out.String()
+	if strings.Contains(got, "reply one") || strings.Contains(got, "reply two") {
+		t.Errorf("replies should be left out:\n%s", got)
+	}
+	if !strings.Contains(got, "first thread") || !strings.Contains(got, "second thread") {
+		t.Errorf("top-level comments missing:\n%s", got)
+	}
+}
+
+func TestListFilteredEmptyMessage(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	listComments(srv, reviewComments())
+
+	ios, _, out, _ := cmdutil.TestIOStreams()
+	opts := newListOpts(t, srv, ios)
+	opts.Author = "nobody"
+	if err := listRun(t.Context(), opts); err != nil {
+		t.Fatalf("listRun: %v", err)
+	}
+	if got := out.String(); got != "No matching comments on pull request #123\n" {
+		t.Errorf("output = %q", got)
+	}
+}
+
+func TestListCurrentUserError(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	handlePR(srv)
+	srv.Handle("GET", "/user", 403, map[string]any{"type": "error", "error": map[string]any{"message": "Forbidden"}})
+
+	ios, _, _, _ := cmdutil.TestIOStreams()
+	opts := newListOpts(t, srv, ios)
+	opts.NeedsReply = true
+	err := listRun(t.Context(), opts)
+	if err == nil || !strings.Contains(err.Error(), "looking up the current user") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestParseSince(t *testing.T) {
+	t.Parallel()
+	now := cmdtest.FixedNow()
+	tests := []struct {
+		in      string
+		after   time.Time
+		afterID int
+	}{
+		{"123", time.Time{}, 123},
+		{"#123", time.Time{}, 123},
+		{"2h", now.Add(-2 * time.Hour), 0},
+		{"90m", now.Add(-90 * time.Minute), 0},
+		{"3d", now.AddDate(0, 0, -3), 0},
+		{"1w", now.AddDate(0, 0, -7), 0},
+		{"2026-09-01T08:00:00Z", time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC), 0},
+		{"2026-09-01", time.Date(2026, 9, 1, 0, 0, 0, 0, time.Local), 0},
+	}
+	for _, tt := range tests {
+		got, err := parseSince(tt.in, now)
+		if err != nil {
+			t.Errorf("parseSince(%q): %v", tt.in, err)
+			continue
+		}
+		if !got.after.Equal(tt.after) || got.afterID != tt.afterID {
+			t.Errorf("parseSince(%q) = %+v, want after %v id %d", tt.in, got, tt.after, tt.afterID)
+		}
+	}
+	for _, bad := range []string{"", "yesterday", "-2h", "2026-13-01", "1.5d"} {
+		_, err := parseSince(bad, now)
+		cmdtest.AssertFlagError(t, err, "invalid value for --since")
+	}
+}
+
+func TestListNewFlagParsing(t *testing.T) {
+	t.Parallel()
+	f := cmdtest.NewFactory()
+	var captured *ListOptions
+	cmd := NewCmdList(f, func(o *ListOptions) error {
+		captured = o
+		return nil
+	})
+	if _, _, err := cmdtest.RunCommand(t, cmd, "55", "--needs-reply", "--since", "2h", "--author", "@me", "--top-level"); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !captured.NeedsReply || captured.Since != "2h" || captured.Author != "@me" || !captured.TopLevel {
+		t.Errorf("parsed = %+v", captured)
+	}
+}
+
+func TestListInvalidSinceFlagError(t *testing.T) {
+	t.Parallel()
+	f := cmdtest.NewFactory()
+	cmd := NewCmdList(f, func(*ListOptions) error {
+		t.Error("runF should not be called")
+		return nil
+	})
+	_, _, err := cmdtest.RunCommand(t, cmd, "123", "--since", "yesterday")
+	cmdtest.AssertFlagError(t, err, "invalid value for --since")
 }

@@ -50,6 +50,16 @@ func (c *Client) CreateComment(ctx context.Context, repo string, id int, in Comm
 	return &out, nil
 }
 
+// GetComment fetches a single comment.
+func (c *Client) GetComment(ctx context.Context, repo string, id, commentID int) (*Comment, error) {
+	path := fmt.Sprintf("%s/%d", commentsPath(repo, id), commentID)
+	var out Comment
+	if _, _, err := c.Do(ctx, http.MethodGet, path, nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // DeleteComment removes a comment.
 func (c *Client) DeleteComment(ctx context.Context, repo string, id, commentID int) error {
 	path := fmt.Sprintf("%s/%d", commentsPath(repo, id), commentID)

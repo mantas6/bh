@@ -264,7 +264,7 @@ func printViewComments(opts *ViewOptions, cs *output.ColorScheme, pr *api.PullRe
 	if opts.Now != nil {
 		now = opts.Now
 	}
-	return shared.WriteThreads(out, cs, now(), threads)
+	return shared.WriteThreads(out, cs, shared.CommentTime(opts.IO.IsStdoutTTY(), now()), threads)
 }
 
 // mergeVerb describes what the author did (or wants to do) with the source
