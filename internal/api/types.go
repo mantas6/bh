@@ -63,6 +63,39 @@ type Commit struct {
 	Hash string `json:"hash"`
 }
 
+// CommitAuthor is the author of a commit: the raw git author
+// ("Name <email>") and, when Bitbucket could link it, the account.
+type CommitAuthor struct {
+	Raw  string `json:"raw"`
+	User *User  `json:"user,omitempty"`
+}
+
+// PRCommit is a commit listed on a pull request.
+type PRCommit struct {
+	Hash    string       `json:"hash"`
+	Date    time.Time    `json:"date"`
+	Message string       `json:"message"`
+	Author  CommitAuthor `json:"author"`
+	Parents []Commit     `json:"parents"`
+	Links   Links        `json:"links"`
+}
+
+// DiffStatFile is one side (old or new) of a diffstat entry.
+type DiffStatFile struct {
+	Path string `json:"path"`
+}
+
+// DiffStat is the per-file change summary of a pull request diff. Status is
+// "added", "removed", "modified", "renamed" or a conflict state; Old is nil
+// for added files and New is nil for removed ones.
+type DiffStat struct {
+	Status       string        `json:"status"`
+	LinesAdded   int           `json:"lines_added"`
+	LinesRemoved int           `json:"lines_removed"`
+	Old          *DiffStatFile `json:"old"`
+	New          *DiffStatFile `json:"new"`
+}
+
 // PRRef is a pull request source/destination endpoint.
 type PRRef struct {
 	Branch     Branch      `json:"branch"`

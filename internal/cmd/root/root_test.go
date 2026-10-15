@@ -103,11 +103,9 @@ func TestUnknownSubcommand(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{[]string{"pr", "comments", "1"}, []string{`unknown command "comments" for "bh pr"`, `Did you mean "comment"?`, "bh pr comment list"}},
-		{[]string{"pr", "diff", "1"}, []string{`unknown command "diff" for "bh pr"`, "not supported yet"}},
-		{[]string{"pr", "commits", "1"}, []string{`unknown command "commits" for "bh pr"`, "not supported yet"}},
+		{[]string{"pr", "comments", "1"}, []string{`unknown command "comments" for "bh pr"`, `Did you mean "comment" or "commits"?`, "bh pr comment list"}},
 		{[]string{"pr", "checks"}, []string{`unknown command "checks" for "bh pr"`, "not supported yet"}},
-		{[]string{"pr", "files", "1"}, []string{`unknown command "files" for "bh pr"`, "not supported yet"}},
+		{[]string{"pr", "files", "1"}, []string{`unknown command "files" for "bh pr"`, "bh pr diff [<pr>] --name-only"}},
 		{[]string{"pr", "status"}, []string{`unknown command "status" for "bh pr"`, "bh pr list --author @me"}},
 		{[]string{"pr", "-R", "ws/repo", "veiw", "1"}, []string{`unknown command "veiw" for "bh pr"`, `Did you mean "view"?`}},
 		{[]string{"pr", "comment", "lst", "1"}, []string{`unknown command "lst" for "bh pr comment"`, `Did you mean "list"?`}},

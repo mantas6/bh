@@ -78,6 +78,25 @@ func (c *Client) PullRequestForBranch(ctx context.Context, repo, branch string) 
 	return &pr, nil
 }
 
+// PullRequestDiff returns the unified diff of a pull request as text.
+// Bitbucket answers with a redirect to the repository diff endpoint, which
+// the HTTP client follows.
+func (c *Client) PullRequestDiff(ctx context.Context, repo string, id int) ([]byte, error) {
+	return c.GetRaw(ctx, prPath(repo, id)+"/diff", nil, "text/plain")
+}
+
+// PullRequestDiffStat lists the files changed by a pull request with their
+// status and line counts, following every page.
+func (c *Client) PullRequestDiffStat(ctx context.Context, repo string, id int) ([]DiffStat, error) {
+	return PaginateAll[DiffStat](ctx, c, prPath(repo, id)+"/diffstat", nil, 0)
+}
+
+// PullRequestCommits lists every commit of a pull request, newest first, as
+// Bitbucket returns them.
+func (c *Client) PullRequestCommits(ctx context.Context, repo string, id int) ([]PRCommit, error) {
+	return PaginateAll[PRCommit](ctx, c, prPath(repo, id)+"/commits", nil, 0)
+}
+
 // CreatePRInput is the input for CreatePullRequest.
 type CreatePRInput struct {
 	Title             string

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -719,4 +720,35 @@ func asHTTPError(t *testing.T, err error) *api.HTTPError {
 		t.Fatalf("error %v is not *HTTPError", err)
 	}
 	return he
+}
+
+func TestGetRawRetriesAndDefaultsAccept(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	srv := apitest.New(t)
+	srv.HandleFunc(http.MethodGet, "/raw", func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		fmt.Fprint(w, "not json")
+	})
+
+	got, err := srv.APIClient().GetRaw(t.Context(), "/raw", url.Values{"a": {"b"}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "not json" {
+		t.Errorf("body = %q", got)
+	}
+	if calls.Load() != 2 {
+		t.Errorf("calls = %d, want 2 (one retry)", calls.Load())
+	}
+	req := srv.LastRequest(t, http.MethodGet, "/raw")
+	if a := req.Header.Get("Accept"); a != "*/*" {
+		t.Errorf("Accept = %q, want */*", a)
+	}
+	if req.Query.Get("a") != "b" {
+		t.Errorf("query = %v", req.Query)
+	}
 }

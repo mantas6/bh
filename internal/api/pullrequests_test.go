@@ -407,3 +407,104 @@ func TestUpdatePullRequest(t *testing.T) {
 		})
 	}
 }
+
+func TestPullRequestDiffFollowsRedirect(t *testing.T) {
+	t.Parallel()
+	const diff = "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -1 +1 @@\n-old\n+new\n"
+	srv := apitest.New(t)
+	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/pullrequests/7/diff", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/repositories/ws/repo/diff/src..dst?from_pullrequest_id=7&topic=true", http.StatusFound)
+	})
+	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/diff/src..dst", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, diff)
+	})
+
+	got, err := srv.APIClient().PullRequestDiff(t.Context(), "ws/repo", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != diff {
+		t.Errorf("diff = %q, want %q", got, diff)
+	}
+	req := srv.LastRequest(t, http.MethodGet, "/repositories/ws/repo/diff/src..dst")
+	if a := req.Header.Get("Accept"); a != "text/plain" {
+		t.Errorf("Accept = %q, want text/plain", a)
+	}
+	if auth := req.Header.Get("Authorization"); auth != "Bearer t" {
+		t.Errorf("Authorization after redirect = %q, want it kept on the same host", auth)
+	}
+}
+
+func TestPullRequestDiffError(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle(http.MethodGet, "/repositories/ws/repo/pullrequests/7/diff", 404,
+		`{"type":"error","error":{"message":"Pull request not found"}}`)
+
+	_, err := srv.APIClient().PullRequestDiff(t.Context(), "ws/repo", 7)
+	var he *api.HTTPError
+	if !errors.As(err, &he) || he.StatusCode != 404 || he.Message != "Pull request not found" {
+		t.Fatalf("err = %#v, want 404 HTTPError with the API message", err)
+	}
+}
+
+func TestPullRequestDiffStatPaginates(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/pullrequests/7/diffstat", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/repositories/ws/repo/diffstat/src..dst?"+r.URL.RawQuery, http.StatusFound)
+	})
+	next := srv.URL + "/repositories/ws/repo/diffstat/src..dst?page=2"
+	srv.HandleFunc(http.MethodGet, "/repositories/ws/repo/diffstat/src..dst", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") == "2" {
+			fmt.Fprint(w, `{"values":[{"status":"removed","lines_added":0,"lines_removed":4,"old":{"path":"gone.go"},"new":null}]}`)
+			return
+		}
+		fmt.Fprintf(w, `{"values":[{"status":"modified","lines_added":3,"lines_removed":1,"old":{"path":"a.go"},"new":{"path":"a.go"}}],"next":%q}`, next)
+	})
+
+	stats, err := srv.APIClient().PullRequestDiffStat(t.Context(), "ws/repo", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 2 {
+		t.Fatalf("got %d entries, want 2: %+v", len(stats), stats)
+	}
+	if s := stats[0]; s.Status != "modified" || s.LinesAdded != 3 || s.LinesRemoved != 1 || s.New == nil || s.New.Path != "a.go" {
+		t.Errorf("first entry = %+v", s)
+	}
+	if s := stats[1]; s.Status != "removed" || s.New != nil || s.Old == nil || s.Old.Path != "gone.go" {
+		t.Errorf("second entry = %+v", s)
+	}
+}
+
+func TestPullRequestCommits(t *testing.T) {
+	t.Parallel()
+	srv := apitest.New(t)
+	srv.Handle(http.MethodGet, "/repositories/ws/repo/pullrequests/7/commits", 200, `{"values":[
+		{"hash":"0123456789abcdef","date":"2026-09-10T10:00:00+00:00","message":"Add thing\n\nLonger body",
+		 "author":{"raw":"Ada Lovelace <ada@example.com>","user":{"nickname":"ada"}},"parents":[{"hash":"fedcba"}]}
+	]}`)
+
+	commits, err := srv.APIClient().PullRequestCommits(t.Context(), "ws/repo", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 1 {
+		t.Fatalf("got %d commits, want 1", len(commits))
+	}
+	c := commits[0]
+	if c.Hash != "0123456789abcdef" || c.Message != "Add thing\n\nLonger body" || c.Author.Raw != "Ada Lovelace <ada@example.com>" {
+		t.Errorf("commit = %+v", c)
+	}
+	if c.Author.User == nil || c.Author.User.Nickname != "ada" {
+		t.Errorf("author user = %+v", c.Author.User)
+	}
+	if !c.Date.Equal(time.Date(2026, 9, 10, 10, 0, 0, 0, time.UTC)) {
+		t.Errorf("date = %v", c.Date)
+	}
+	if len(c.Parents) != 1 || c.Parents[0].Hash != "fedcba" {
+		t.Errorf("parents = %+v", c.Parents)
+	}
+}

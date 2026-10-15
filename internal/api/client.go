@@ -148,6 +148,17 @@ func (c *Client) resolveURL(path string) string {
 	return c.baseURL() + path
 }
 
+// withQuery appends the encoded query to u, which may already have one.
+func withQuery(u string, query url.Values) string {
+	if len(query) == 0 {
+		return u
+	}
+	if strings.Contains(u, "?") {
+		return u + "&" + query.Encode()
+	}
+	return u + "?" + query.Encode()
+}
+
 // sameHost reports whether u points at the BaseURL host, i.e. whether it is
 // safe to attach credentials to a request for u.
 func (c *Client) sameHost(u *url.URL) bool {
@@ -182,14 +193,7 @@ func (c *Client) setAuth(req *http.Request) {
 // The returned status and header describe the final response; they are zero
 // when no response was received.
 func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body any, out any) (int, http.Header, error) {
-	u := c.resolveURL(path)
-	if len(query) > 0 {
-		if strings.Contains(u, "?") {
-			u += "&" + query.Encode()
-		} else {
-			u += "?" + query.Encode()
-		}
-	}
+	u := withQuery(c.resolveURL(path), query)
 
 	var payload []byte
 	if body != nil {
@@ -200,8 +204,31 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		payload = buf
 	}
 
+	return c.send(ctx, method, u, "application/json", payload, out)
+}
+
+// GetRaw issues a GET request for path (absolute or relative to BaseURL) and
+// returns the response body as is, for endpoints that answer with something
+// other than JSON, such as a text/plain diff. accept is sent as the Accept
+// header; empty means "*/*". Redirects are followed, transient failures are
+// retried as in Do, and non-2xx responses yield a *HTTPError.
+func (c *Client) GetRaw(ctx context.Context, path string, query url.Values, accept string) ([]byte, error) {
+	u := withQuery(c.resolveURL(path), query)
+	if accept == "" {
+		accept = "*/*"
+	}
+	var data []byte
+	if _, _, err := c.send(ctx, http.MethodGet, u, accept, nil, &data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// send performs a request against the absolute URL u, retrying idempotent
+// requests that fail with a transient status (see Do).
+func (c *Client) send(ctx context.Context, method, u, accept string, payload []byte, out any) (int, http.Header, error) {
 	for attempt := 0; ; attempt++ {
-		status, header, err := c.do(ctx, method, u, payload, out)
+		status, header, err := c.do(ctx, method, u, accept, payload, out)
 		if err == nil || attempt >= maxRetries || !retryable(method, status) {
 			return status, header, err
 		}
@@ -215,8 +242,10 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 	}
 }
 
-// do performs a single request attempt against the absolute URL u.
-func (c *Client) do(ctx context.Context, method, u string, payload []byte, out any) (int, http.Header, error) {
+// do performs a single request attempt against the absolute URL u. When out
+// is a *[]byte the 2xx response body is stored there verbatim; otherwise it is
+// JSON-decoded into out.
+func (c *Client) do(ctx context.Context, method, u, accept string, payload []byte, out any) (int, http.Header, error) {
 	var reqBody io.Reader
 	if payload != nil {
 		reqBody = bytes.NewReader(payload)
@@ -225,7 +254,7 @@ func (c *Client) do(ctx context.Context, method, u string, payload []byte, out a
 	if err != nil {
 		return 0, nil, err
 	}
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", accept)
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -251,6 +280,10 @@ func (c *Client) do(ctx context.Context, method, u string, payload []byte, out a
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return resp.StatusCode, resp.Header, fmt.Errorf("reading response body: %w", err)
+	}
+	if raw, ok := out.(*[]byte); ok {
+		*raw = data
+		return resp.StatusCode, resp.Header, nil
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
 		return resp.StatusCode, resp.Header, nil

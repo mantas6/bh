@@ -115,6 +115,8 @@ The following remote URL forms are recognized:
 | `bh auth token` | Print the auth token bh is configured to use |
 | `bh pr list` | List pull requests (alias: `ls`) |
 | `bh pr view` | View a pull request |
+| `bh pr diff` | View changes in a pull request (`--name-only`, `--stat`, `--web`) |
+| `bh pr commits` | List the commits of a pull request |
 | `bh pr create` | Create a pull request |
 | `bh pr edit` | Edit a pull request |
 | `bh pr checkout` | Check out a pull request in git |
@@ -140,12 +142,12 @@ Run `bh <command> --help` for the full flag list of any command.
 
 An unknown subcommand is a usage error: bh exits non-zero, suggests close
 matches, and for commands that do not exist (such as `bh pr comments` or
-`bh pr diff`) points at what to use instead:
+`bh pr files`) points at what to use instead:
 
 ```console
 $ bh pr comments 123
 bh: unknown command "comments" for "bh pr"
-Did you mean "comment"?
+Did you mean "comment" or "commits"?
 To list comments, run: bh pr comment list [<pr>], or bh pr view [<pr>] --comments
 
 Run 'bh pr --help' for usage.
@@ -158,7 +160,7 @@ still shows the whole message:
 
 ```console
 $ bh pr comments 123 2>&1 | cat
-bh: unknown command "comments" for "bh pr"; Did you mean "comment"?; To list comments, run: bh pr comment list [<pr>], or bh pr view [<pr>] --comments (run 'bh pr --help' for usage)
+bh: unknown command "comments" for "bh pr"; Did you mean "comment" or "commits"?; To list comments, run: bh pr comment list [<pr>], or bh pr view [<pr>] --comments (run 'bh pr --help' for usage)
 ```
 
 `bh pr view` prints a summary header followed by the description. On
@@ -215,6 +217,26 @@ Comments:
 View this pull request on Bitbucket: https://bitbucket.org/myws/myrepo/pull-requests/123
 ```
 
+`bh pr diff` prints the pull request's unified diff as Bitbucket renders it
+(colored on a terminal). `--name-only` prints one changed path per line, and
+`--stat` prints one line per file with its status (`added`, `modified`,
+`removed`, `renamed`, ...) and line counts; a renamed file is shown as
+`old → new`. When standard output is not a terminal the `--stat` fields are
+tab-separated and the summary line is left out:
+
+```console
+$ bh pr diff 123 --stat
+main.go                    modified  +3   -1
+new.go                     added     +10  -0
+old/name.go → new/name.go  renamed   +0   -0
+3 files changed, 13 insertions(+), 1 deletion(-)
+```
+
+`bh pr commits` lists the commits newest first: short hash, author, date and
+the first line of the message. Dates are relative on a terminal and RFC 3339
+timestamps otherwise (fields are then tab-separated); `--json` prints the full
+commit objects.
+
 ## Usage examples
 
 ```sh
@@ -235,6 +257,14 @@ bh pr create --fill --base main --reviewer alice,bob
 
 # Add a reviewer by {uuid} or account ID (skips the workspace member lookup)
 bh pr edit 123 --add-reviewer '{a1b2c3d4-e5f6-7890-abcd-ef1234567890}'
+
+# Show the diff of a pull request, or just the changed files / line counts
+bh pr diff 123
+bh pr diff 123 --name-only
+bh pr diff 123 --stat
+
+# List the commits of a pull request (newest first)
+bh pr commits 123
 
 # Check out a pull request locally
 bh pr checkout 123
@@ -298,5 +328,5 @@ The following are intentionally out of scope for now:
 - Bitbucket Data Center (server) support
 - Storing credentials in an OS keyring
 - `--json <fields>` field selection (only a boolean `--json` dump is available)
-- `pr diff`, `pr checks`, and `pr status`
+- `pr checks` and `pr status`
 - A bundled CI workflow
