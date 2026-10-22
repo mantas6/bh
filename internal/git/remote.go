@@ -78,6 +78,15 @@ func isSCPLike(raw string) bool {
 	return colon > 1 // "C:\..." is a local path
 }
 
+// hostAliases lists alternate hostnames that Bitbucket Cloud serves git over.
+// altssh.bitbucket.org and ssh.bitbucket.org both accept SSH on port 443 for
+// networks that block port 22.
+var hostAliases = map[string]bool{
+	api.DefaultHost:        true,
+	"altssh.bitbucket.org": true,
+	"ssh.bitbucket.org":    true,
+}
+
 // normalizeHost maps alternate Bitbucket hostnames to the canonical host and
 // reports whether the host belongs to Bitbucket Cloud.
 func normalizeHost(host string) (string, bool) {
@@ -86,8 +95,7 @@ func normalizeHost(host string) (string, bool) {
 	if i := strings.LastIndex(host, ":"); i >= 0 {
 		host = host[:i]
 	}
-	switch host {
-	case api.DefaultHost, "altssh.bitbucket.org":
+	if hostAliases[host] {
 		return api.DefaultHost, true
 	}
 	return host, false

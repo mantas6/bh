@@ -27,6 +27,11 @@ func TestParseRemoteURL(t *testing.T) {
 		{"ssh", "ssh://git@bitbucket.org/ws/repo.git", true, want},
 		{"ssh altssh port", "ssh://git@altssh.bitbucket.org:443/ws/repo.git", true, want},
 		{"altssh https normalizes", "https://altssh.bitbucket.org/ws/repo.git", true, want},
+		{"scp ssh host", "git@ssh.bitbucket.org:ws/repo.git", true, want},
+		{"ssh ssh host port", "ssh://git@ssh.bitbucket.org:443/ws/repo.git", true, want},
+		{"ssh host https normalizes", "https://ssh.bitbucket.org/ws/repo.git", true, want},
+		{"scp ssh host real world", "git@ssh.bitbucket.org:myws/myrepo.git", true,
+			git.Repo{Host: "bitbucket.org", Workspace: "myws", Name: "myrepo"}},
 		{"git+ssh", "git+ssh://git@bitbucket.org/ws/repo.git", true, want},
 		{"ssh+git", "ssh+git://git@bitbucket.org/ws/repo.git", true, want},
 
@@ -116,15 +121,20 @@ func TestParseRepoArg(t *testing.T) {
 		{"url .git", "https://bitbucket.org/ws/repo.git", false, want},
 		{"url trailing path", "https://bitbucket.org/ws/repo/pull-requests/1", false, want},
 		{"altssh url", "https://altssh.bitbucket.org/ws/repo", false, want},
+		{"ssh host url", "https://ssh.bitbucket.org/ws/repo", false, want},
 		{"url trailing slash", "https://bitbucket.org/ws/repo/", false, want},
 		{"surrounding space", "  ws/repo  ", false, want},
 		{"scp", "git@bitbucket.org:ws/repo", false, want},
 		{"scp .git", "git@bitbucket.org:ws/repo.git", false, want},
 		{"ssh url", "ssh://git@bitbucket.org/ws/repo.git", false, want},
 		{"ssh altssh port", "ssh://git@altssh.bitbucket.org:443/ws/repo.git", false, want},
+		{"scp ssh host", "git@ssh.bitbucket.org:ws/repo.git", false, want},
+		{"ssh ssh host port", "ssh://git@ssh.bitbucket.org:443/ws/repo.git", false, want},
 		{"host shorthand", "bitbucket.org/ws/repo", false, want},
 		{"host shorthand .git", "bitbucket.org/ws/repo.git", false, want},
 		{"host shorthand uppercase", "BitBucket.org/ws/repo", false, want},
+		{"altssh host shorthand", "altssh.bitbucket.org/ws/repo", false, want},
+		{"ssh host shorthand", "ssh.bitbucket.org/ws/repo", false, want},
 
 		{"empty", "", true, git.Repo{}},
 		{"blank", "   ", true, git.Repo{}},
@@ -231,6 +241,24 @@ func TestResolveRepo(t *testing.T) {
 		}
 		if rr == nil || rr.Remote.Name != "bb" {
 			t.Fatalf("resolved remote = %+v, want bb", rr)
+		}
+	})
+
+	t.Run("ssh.bitbucket.org origin", func(t *testing.T) {
+		t.Parallel()
+		s := gittest.New(t).Register(remoteVOutput(
+			[2]string{"origin", "git@ssh.bitbucket.org:myws/myrepo.git"},
+		), nil, "remote", "-v")
+
+		repo, rr, err := git.ResolveRepo(ctx, s, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := (git.Repo{Host: "bitbucket.org", Workspace: "myws", Name: "myrepo"}); repo != want {
+			t.Fatalf("repo = %+v, want %+v", repo, want)
+		}
+		if rr == nil || rr.Remote.Name != "origin" {
+			t.Fatalf("resolved remote = %+v, want origin", rr)
 		}
 	})
 

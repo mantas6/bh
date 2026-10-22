@@ -106,6 +106,7 @@ The following remote URL forms are recognized:
 - `git@bitbucket.org:ws/repo.git`
 - `ssh://git@bitbucket.org/ws/repo.git`
 - `ssh://git@altssh.bitbucket.org:443/ws/repo.git`
+- `git@ssh.bitbucket.org:ws/repo.git` (and `ssh://git@ssh.bitbucket.org:443/ws/repo.git`)
 
 ## Command reference
 
